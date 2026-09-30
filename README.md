@@ -11,7 +11,10 @@ The portal includes company-scoped login, dashboard, filtered call history,
 encrypted SIP credentials, assigned DIDs, transaction ledger and PDF usage invoices.
 Billing uses decimal arithmetic, atomic ledger updates, retry-safe call imports,
 overdue subscription catch-up and immutable PostgreSQL billing history.
-Tenant administration and verified top-ups use server-side operator commands.
+An administrator dashboard manages clients, customer logins, per-client prices,
+SIP accounts, one-time CLI/setup charges, recurring charges and verified top-ups.
+An encrypted DID Logic connection page provides read-only real-CDR previews and
+an explicit billing-sync switch. Wholesale rates and margins are admin-only.
 
 Read [deployment instructions](docs/DEPLOYMENT.md) to install the application,
 enable HTTPS, create accounts and schedule workers. Review the
@@ -38,14 +41,15 @@ To run locally, set `APP_ENV=development`, a random `SECRET_KEY` of at least
 python -c "import secrets; print(secrets.token_hex(32))"
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 flask --app app init-db
-flask --app app create-tenant
+flask --app app create-admin
 flask --app app run
 ```
 
 The first two commands print values to set in your environment. Local SQLite
 defaults to `instance/portal.db`; production requires PostgreSQL. Docker Compose
 loads `.env`; the local Flask CLI does not automatically load it. No built-in
-accounts or demo activity are created.
+accounts or demo activity are created. Installation creates only the administrator
+you explicitly enter; create clients from the admin dashboard afterward.
 
 Read [AGENTS.md](AGENTS.md) and [design rules](docs/DESIGN_RULES.md) before UI edits.
 Approved logos and self-hosted Inter are tracked under `app/static/`.

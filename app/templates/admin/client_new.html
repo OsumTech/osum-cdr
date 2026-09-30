@@ -1,0 +1,13 @@
+{% extends 'base.html' %}{% import 'admin/_forms.html' as forms with context %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">CLIENT MANAGEMENT</p><h1>Create client</h1><p class="muted">Set up a company, its first login and its retail pricing.</p></div><a class="button" href="{{ url_for('admin.clients') }}">Back to clients</a></div>
+{% if error %}<div class="notice error" role="alert">{{ error }}</div>{% endif %}
+<form method="post" class="admin-panel">{{ forms.csrf() }}
+<h2>Company & access</h2><div class="form-grid">
+{{ forms.field('name', 'Company name', request.form.get('name', '')) }}
+{{ forms.field('email', 'Client login email', request.form.get('email', ''), 'email') }}
+{{ forms.field('password', 'Initial password · at least 12 characters', '', 'password') }}
+</div><h2>Retail pricing</h2>{{ forms.rates(request.form) }}
+<p class="form-help">CLI prices are defaults for new number assignments. Creating a client does not provision services or post charges.</p>
+<button class="button primary">Create client</button></form>
+{% endblock %}

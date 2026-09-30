@@ -15,6 +15,12 @@ portal = Blueprint('portal', __name__)
 DUMMY_HASH = generate_password_hash('unusable-placeholder-password')
 
 
+@portal.before_request
+def separate_admin_workspace():
+    if current_user.is_authenticated and current_user.is_admin and request.endpoint not in ('portal.login', 'portal.logout', 'portal.health'):
+        return redirect(url_for('admin.dashboard'))
+
+
 @portal.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
@@ -124,6 +130,7 @@ def health():
 
 
 @portal.app_errorhandler(400)
+@portal.app_errorhandler(403)
 @portal.app_errorhandler(404)
 @portal.app_errorhandler(500)
 def error_page(error):

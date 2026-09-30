@@ -23,7 +23,7 @@ def render_invoice(invoice):
              Paragraph(f'Currency: {invoice.currency}', styles['Normal']), Spacer(1, 10 * mm)]
     rows = [['Description', f'Amount ({invoice.currency})'],
             ['Call usage posted during billing month', f'{invoice.usage:,.6f}'],
-            ['DID subscriptions posted during billing month', f'{invoice.subscriptions:,.6f}'],
+            ['DID activation, setup & recurring charges', f'{invoice.subscriptions:,.6f}'],
             ['Total charged to prepaid balance', f'{invoice.total:,.6f}']]
     table = Table(rows, colWidths=[118 * mm, 52 * mm], repeatRows=1)
     table.setStyle(TableStyle([

@@ -2,7 +2,9 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.models import SipAccount, db
+from cryptography.fernet import Fernet
+from sqlalchemy import func, select
+from app.models import Call, Integration, Ledger, SipAccount, db, utcnow
 from app.provider import parse_call, sync_calls
 
 
@@ -29,7 +31,29 @@ def test_sync_disabled_by_default(app, monkeypatch):
 
 
 def test_sync_refuses_missing_configuration(app, monkeypatch):
-    monkeypatch.setenv('LIVE_SYNC_ENABLED', 'true')
-    monkeypatch.delenv('DIDLOGIC_CALL_ID_FIELD', raising=False)
+    db.session.add(Integration(id=1, enabled=True))
+    db.session.commit()
     with pytest.raises(ValueError, match='confirmed ID'):
         sync_calls()
+
+
+def test_sync_uses_saved_token_and_records_wholesale_once(app, monkeypatch):
+    token = 'stored-test-token'
+    config = Integration(id=1, enabled=True, last_test_ok=True, currency_confirmed=True,
+        call_id_field='id', start_date=utcnow().date(),
+        token_encrypted=Fernet(app.config['ENCRYPTION_KEY']).encrypt(token.encode()).decode())
+    db.session.add(config)
+    db.session.commit()
+    monkeypatch.setenv('DIDLOGIC_TOKEN', 'obsolete-env-token')
+    def response(saved_token, params, client):
+        assert saved_token == token
+        return {'calls': [row(id=f"call-{params['sip_account']}", sip_account=params['sip_account'],
+            timestamp=utcnow().replace(hour=0, minute=0, second=0, microsecond=0).isoformat(),
+            per_minute='0.01', amount='0.01')], 'pagination': {}}
+    monkeypatch.setattr('app.provider.read_calls', response)
+    assert sync_calls()['imported'] == 2
+    assert sync_calls()['imported'] == 0
+    assert db.session.scalar(select(func.count(Call.id))) == 2
+    assert db.session.scalar(select(func.count(Ledger.id))) == 2
+    assert str(db.session.scalar(select(Call.wholesale_cost).limit(1))) == '0.010000'
+    assert db.session.get(Integration, 1).last_sync_at is not None

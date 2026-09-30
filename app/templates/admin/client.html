@@ -1,0 +1,56 @@
+{% extends 'base.html' %}{% import 'admin/_forms.html' as forms with context %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">CLIENT SETTINGS</p><h1>{{ tenant.name }}</h1><p class="muted">Set prices, manage access and assign real services.</p></div><div class="balance-summary"><span class="muted">Prepaid balance</span><strong>USD {{ tenant.balance|money }}</strong><a href="{{ url_for('admin.calls', tenant_id=tenant.id) }}">View rated calls ↗</a></div></div>
+{% if error %}<div class="notice error" role="alert">{{ error }}</div>{% endif %}
+<nav class="section-links" aria-label="Client sections"><a href="#pricing">Pricing</a><a href="#users">Users</a><a href="#sip">SIP accounts</a><a href="#numbers">Numbers</a><a href="#payments">Payments</a></nav>
+<section id="pricing" class="admin-panel"><h2>Client pricing</h2><form method="post">{{ forms.csrf('settings') }}
+{% set source = request.form if error and request.form.get('action') == 'settings' else tenant %}
+{{ forms.field('name', 'Company name', source['name']) }}
+{{ forms.rates(source) }}
+<label class="checkbox"><input type="checkbox" name="active" {% if tenant.active %}checked{% endif %}>Enable customer portal access</label>
+<p class="form-help">Disabling portal access does not suspend calls at the provider. CLI defaults apply to new assignments; existing number prices are edited below.</p>
+<button class="button primary">Save client settings</button></form></section>
+
+<section id="users" class="admin-panel"><h2>Customer logins</h2>
+{% for user in users %}<details class="admin-details"><summary>{{ user.email }} · {{ 'Enabled' if user.active else 'Disabled' }}</summary><form method="post">{{ forms.csrf('user_update') }}<input type="hidden" name="user_id" value="{{ user.id }}">
+{{ forms.field('password', 'New password (leave blank to keep)', '', 'password', false, 'user-' ~ user.id ~ '-') }}
+<label class="checkbox"><input type="checkbox" name="active" {% if user.active %}checked{% endif %}>Enable login</label><button class="button">Update user</button><p class="form-help">Saving revokes this user's existing sessions.</p></form></details>{% endfor %}
+<details class="admin-details" {% if error and request.form.get('action') == 'user' %}open{% endif %}><summary>Add customer login</summary><form method="post">{{ forms.csrf('user') }}<div class="form-grid">
+{{ forms.field('email', 'Email address', request.form.get('email', '') if error and request.form.get('action') == 'user' else '', 'email', true, 'add-user-') }}
+{{ forms.field('password', 'Initial password · at least 12 characters', '', 'password', true, 'add-user-') }}</div><button class="button">Add user</button></form></details></section>
+
+<section id="sip" class="admin-panel"><h2>SIP accounts</h2><p class="form-help">Map an existing provider account to this client. Use the exact SIP account identifier shown in the real CDR preview.</p>
+{% for account in accounts %}<details class="admin-details"><summary>{{ account.label }} · {{ account.provider_id }} · {{ 'Active' if account.active else 'Inactive' }}</summary><form method="post">{{ forms.csrf('sip_update') }}<input type="hidden" name="account_id" value="{{ account.id }}"><div class="form-grid">
+{{ forms.field('label', 'Display name', account.label, prefix='sip-' ~ account.id ~ '-') }}
+{{ forms.field('host', 'Registrar / branded SIP host', account.host, prefix='sip-' ~ account.id ~ '-') }}
+{{ forms.field('sip_password', 'Replace SIP password (optional)', '', 'password', false, 'sip-' ~ account.id ~ '-') }}</div>
+<label class="checkbox"><input type="checkbox" name="active" {% if account.active %}checked{% endif %}>Import calls from this account</label><p class="form-help">Turning imports off does not stop provider calls. Already-incurred costs still need reconciliation.</p><button class="button">Update SIP account</button></form></details>{% else %}<p class="muted">No SIP accounts assigned.</p>{% endfor %}
+<details class="admin-details" {% if error and request.form.get('action') == 'sip' %}open{% endif %}><summary>Assign SIP account</summary><form method="post">{{ forms.csrf('sip') }}
+{% set sip_values = request.form if error and request.form.get('action') == 'sip' else {} %}<div class="form-grid">
+{{ forms.field('provider_id', 'Provider SIP identifier', sip_values.get('provider_id', ''), prefix='new-sip-') }}
+{{ forms.field('label', 'Display name', sip_values.get('label', ''), prefix='new-sip-') }}
+{{ forms.field('username', 'SIP username', sip_values.get('username', ''), prefix='new-sip-') }}
+{{ forms.field('host', 'Registrar / branded SIP host', sip_values.get('host', ''), prefix='new-sip-') }}
+{{ forms.field('sip_password', 'SIP password', '', 'password', true, 'new-sip-') }}</div><button class="button">Assign SIP account</button></form></details></section>
+
+<section id="numbers" class="admin-panel"><h2>CLI / DID numbers</h2><p class="form-help">New activation: initial CLI price + setup once. The first recurring charge is one month later. Existing numbers can be mapped without charging setup again.</p>
+{% for did in dids %}<details class="admin-details"><summary>{{ did.number }} · USD {{ did.monthly_charge|money }}/month · {{ 'Active' if did.active else 'Inactive' }}</summary><p class="form-help">Initial CLI: USD {{ did.initial_cost|money }} · Setup: USD {{ did.setup_cost|money }} · Next renewal: {{ did.next_billing_date }}</p><form method="post">{{ forms.csrf('did_update') }}<input type="hidden" name="did_id" value="{{ did.id }}">
+{{ forms.field('monthly_charge', 'Future recurring charge · USD/month', did.monthly_charge, 'number', true, 'did-' ~ did.id ~ '-') }}
+<label class="checkbox"><input type="checkbox" name="active" {% if did.active %}checked{% endif %}>Enable subscription renewals</label><p class="form-help">Re-enabling a number catches up unpaid renewal dates. This setting does not cancel service with DID Logic.</p><button class="button">Update recurring charge</button></form></details>{% else %}<p class="muted">No numbers assigned.</p>{% endfor %}
+<details class="admin-details" {% if error and request.form.get('action') == 'did' %}open{% endif %}><summary>Assign number</summary><form method="post">{{ forms.csrf('did') }}
+{% set values = request.form if error and request.form.get('action') == 'did' else {} %}
+<div class="form-grid">{{ forms.field('number', 'Telephone number · international format', values.get('number', ''), prefix='new-did-') }}
+<div class="form-field"><label for="did-mode">Assignment type</label><select id="did-mode" name="mode"><option value="new" {% if values.get('mode') == 'new' %}selected{% endif %}>New activation · charge initial price + setup</option><option value="existing" {% if values.get('mode') == 'existing' %}selected{% endif %}>Existing number · no initial charge</option></select></div>
+{{ forms.field('initial_cost', 'Initial CLI price · USD', values.get('initial_cost', tenant.cli_initial_cost), 'number', true, 'new-did-') }}
+{{ forms.field('setup_cost', 'One-time setup fee · USD', values.get('setup_cost', tenant.cli_setup_cost), 'number', true, 'new-did-') }}
+{{ forms.field('monthly_charge', 'Recurring charge · USD/month', values.get('monthly_charge', tenant.cli_monthly_cost), 'number', true, 'new-did-') }}
+{{ forms.field('next_billing_date', 'Next renewal date · existing numbers only', values.get('next_billing_date', ''), 'date', false, 'new-did-') }}</div>
+<label class="checkbox"><input type="checkbox" name="confirm_charge">For a new activation, post the initial CLI price and setup fee shown above to this client's prepaid balance now.</label>
+<p class="form-help">Existing-number mode ignores initial/setup prices and posts no charge now. These assignments do not purchase or provision a number at the provider.</p><button class="button">Assign number</button></form></details></section>
+
+<section id="payments" class="admin-panel"><h2>Record a verified payment</h2><form method="post">{{ forms.csrf('topup') }}<div class="form-grid">
+{{ forms.field('amount', 'Amount received · USD', request.form.get('amount', '') if error and request.form.get('action') == 'topup' else '', 'number') }}
+{{ forms.field('reference', 'Unique payment reference', request.form.get('reference', '') if error and request.form.get('action') == 'topup' else '') }}</div>
+<label class="checkbox"><input type="checkbox" name="payment_verified" required>I have verified that this payment was received.</label><button class="button">Record payment</button></form></section>
+<section class="records"><div class="section-heading"><h2>Recent ledger entries</h2></div>{% if entries %}<div class="table-scroll" tabindex="0" role="region" aria-label="Client ledger"><table><thead><tr><th>Date · UTC</th><th>Description</th><th class="numeric">Amount · USD</th><th class="numeric">Balance · USD</th></tr></thead><tbody>{% for entry in entries %}<tr><td>{{ entry.created_at.strftime('%d %b %Y · %H:%M') }}</td><td>{{ entry.description }}</td><td class="numeric">{{ entry.amount|precise }}</td><td class="numeric">{{ entry.balance_after|precise }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="empty-state compact"><p>No charges or payments recorded.</p></div>{% endif %}</section>
+{% endblock %}

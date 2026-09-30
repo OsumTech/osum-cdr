@@ -1,0 +1,6 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">CLIENT MANAGEMENT</p><h1>Clients</h1><p class="muted">Manage access, pricing and services for each company.</p></div><a class="button primary" href="{{ url_for('admin.create_client') }}">Create client ↗</a></div>
+<section class="records">{% if pagination.items %}<div class="table-scroll" tabindex="0" role="region" aria-label="Clients"><table><thead><tr><th>Company</th><th>Portal access</th><th class="numeric">Balance · USD</th><th class="numeric">Landline · USD/min</th><th class="numeric">Mobile · USD/min</th></tr></thead><tbody>{% for tenant in pagination.items %}<tr><td><a href="{{ url_for('admin.client', tenant_id=tenant.id) }}">{{ tenant.name }}</a></td><td>{{ 'Enabled' if tenant.active else 'Disabled' }}</td><td class="numeric">{{ tenant.balance|money }}</td><td class="numeric">{{ tenant.landline_rate|precise }}</td><td class="numeric">{{ tenant.mobile_rate|precise }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="empty-state"><h2>No clients yet.</h2><p>Create your first client and set their own rates. No sample companies are added during installation.</p></div>{% endif %}</section>
+{% include '_pagination.html' %}
+{% endblock %}

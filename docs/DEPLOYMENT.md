@@ -17,20 +17,22 @@ The initialiser creates random session, database and encryption secrets with
 owner-only permissions and refuses to overwrite an existing `.env`. It does not
 print credentials. Never send them in chat or commit them to Git. Back up `.env`
 securely; losing the encryption key makes stored SIP passwords unreadable.
-Keep `APP_ENV=production` and `LIVE_SYNC_ENABLED=false`. If Python is missing,
+Keep `APP_ENV=production`. Provider sync starts disabled in the database. If Python is missing,
 install it with `apt install -y python3`.
 
-## 2. Initialise and create the first company
+## 2. Initialise and create only the administrator
 
 ```sh
 docker compose up -d db
 docker compose run --rm web flask --app app init-db
-docker compose run --rm web flask --app app create-tenant
+docker compose run --rm web flask --app app create-admin
 ```
 
-Enter the real company name, email and a strong password at the prompts. There
-are no default accounts. Save the displayed tenant ID. `init-db` bootstraps
-schema version 1; it is not a schema-upgrade tool. Future changes need migrations.
+Enter your administrator email and a strong password. No client company,
+customer login, SIP account, number or demonstration record is created.
+`init-db` creates schema version 2; `upgrade-db` safely upgrades the first release.
+If you already created a customer in version 1, use a different email for the
+administrator; the existing customer remains intact.
 
 ## 3. Start the HTTPS bootstrap
 
@@ -63,35 +65,45 @@ curl --fail https://cdr.asumtech.net/health
 Visit https://cdr.asumtech.net and sign in. Health verifies database connectivity,
 not worker freshness.
 
-## 5. Configure real services
+## 5. Configure everything else in the admin dashboard
+
+1. Sign in with the administrator account. You are redirected to `/admin/`.
+2. Open **Integrations**, paste the DID Logic token and save. It is encrypted in
+   PostgreSQL and never displayed again. Keep `ENCRYPTION_KEY` in server `.env`.
+3. Click **Test connection & fetch CDRs**. This reads real calls without charging
+   customers. No placeholder records are generated when the API has no data.
+4. Open **Clients → Create client**. Set the company, customer login, landline
+   and mobile retail prices, billing increment, optional fallback rate, initial
+   CLI price, setup fee and recurring CLI charge.
+5. In that client's settings, assign actual SIP accounts using the identifier
+   from the provider preview, then assign real telephone numbers.
+6. Choose **New activation** to debit initial CLI price plus setup now and begin
+   monthly recurring charges one month later. Choose **Existing number** to map
+   a previously activated number without recharging its setup; enter next renewal.
+7. Record externally verified payments under the client's Payments section.
+   Reusing a payment reference does not duplicate a credit.
+8. Configure the confirmed stable call-ID field, USD cost confirmation and first
+   billing date in Integrations, test again, then explicitly enable billing sync.
+
+Client settings also manage additional customer logins, password resets, portal
+access, SIP credentials and future number renewals. Changes are audited.
+Full white-labelling requires a working branded SIP hostname outside the portal.
+Mapping services does not buy numbers or provision trunks with DID Logic.
+Wholesale fields remain administrator-only.
+
+For a forgotten **administrator** password, use server-side recovery:
 
 ```sh
-docker compose exec web flask --app app list-tenants
-docker compose exec web flask --app app add-sip --tenant-id 1
-docker compose exec web flask --app app add-did --tenant-id 1
-docker compose exec web flask --app app add-user --tenant-id 1
-```
-
-Use your actual tenant ID. These commands map already-provisioned services; they
-do not purchase DIDs or create provider trunks. `provider-id` must exactly match
-the CDR's `sip_account` value. SIP secrets are encrypted and revealed only after
-confirming the portal password. Full white-labelling requires a working branded
-SIP hostname at the provider/network layer; the portal cannot mask DNS/SIP routing.
-
-Record a top-up only after verifying its external payment. A repeated reference
-and amount does not create a second credit:
-
-```sh
-docker compose exec web flask --app app top-up --tenant-id 1 --amount 100.00 --reference ACTUAL-PAYMENT-REFERENCE
 docker compose exec web flask --app app reset-password
 ```
 
-The second command is for password recovery; resets revoke existing sessions.
+There is no unauthenticated public admin-registration page.
 
 ## 6. Enable workers
 
 Read [BILLING.md](BILLING.md). Confirm commercial rates and the provider's unique
-call ID before enabling live sync in `.env`.
+call ID before enabling live sync in the admin dashboard. Legacy token/sync `.env`
+variables are no longer read. No API token needs to be entered at installation.
 
 ```sh
 timedatectl set-timezone UTC
@@ -125,14 +137,31 @@ umask 077
 docker compose exec -T db pg_dump -U osum -d osum -Fc > "backups/osum-$(date -u +%Y%m%dT%H%M%SZ).dump"
 git pull --ff-only origin main
 docker compose build
+docker compose stop web
+docker compose run --rm web flask --app app upgrade-db
 docker compose up -d web
 docker compose restart nginx
 curl --fail https://cdr.asumtech.net/health
 ```
 
-Restart Nginx after recreating web to resolve its new container IP. Future schema
-changes must include migration instructions. Keep protected off-server backups.
+Pause only the Osumtech cron entries during a schema upgrade, then restore them
+after verification. The version 2 upgrade preserves v1 tenants, users, balances,
+calls, invoices and SIP credentials. It retains the legacy global fallback rate
+and billing increment as each existing client's initial plan. Run `create-admin`
+once after upgrading from v1; do not promote a customer login implicitly.
+Keep the original `.env` and encryption key. Do not rerun the first-install Nginx
+bootstrap over an existing HTTPS configuration.
+Restart Nginx after recreating web to resolve its new container IP. Keep protected off-server backups.
 Do not run `docker compose down -v`: it deletes database and certificate volumes.
+
+## If `create-admin` is missing
+
+This command requires the admin release in both the Git checkout and the built
+web image. Publish local changes to GitHub first, then run `git pull --ff-only
+origin main` and `docker compose build web` on the VPS. Confirm registration with
+`docker compose run --rm web flask --app app --help`. Follow the upgrade sequence
+above before creating the administrator; pulling source alone does not rebuild
+the image.
 
 ## Before live billing
 

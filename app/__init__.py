@@ -49,8 +49,10 @@ def create_app(test_config=None):
     login_manager.login_message = 'Please sign in to continue.'
     csrf.init_app(app)
     from .routes import portal
+    from .admin import admin
     from .cli import register_commands
     app.register_blueprint(portal)
+    app.register_blueprint(admin)
     register_commands(app)
 
     @app.template_filter('money')

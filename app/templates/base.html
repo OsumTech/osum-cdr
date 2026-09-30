@@ -12,16 +12,17 @@
 <div class="app-layout">
   <aside class="sidebar">
     <a class="brand" href="{{ url_for('portal.dashboard') }}" aria-label="Osumtech overview"><img src="{{ url_for('static', filename='brand/logo-light.png') }}" width="192" height="48" alt="Osumtech"></a>
-    <p class="eyebrow workspace-label">VOICE WORKSPACE</p>
+    <p class="eyebrow workspace-label">{{ 'ADMIN WORKSPACE' if current_user.is_admin else 'VOICE WORKSPACE' }}</p>
     <nav aria-label="Main navigation">
-      {% for endpoint, label, symbol in [('dashboard', 'Overview', '◫'), ('calls', 'Call history', '↗'), ('trunks', 'SIP accounts', '☷'), ('billing', 'Billing & invoices', '≡')] %}
-      <a href="{{ url_for('portal.' ~ endpoint) }}" {% if request.endpoint == 'portal.' ~ endpoint %}aria-current="page"{% endif %}><span aria-hidden="true">{{ symbol }}</span>{{ label }}</a>
+      {% set navigation = [('admin.dashboard', 'Overview', '◫'), ('admin.clients', 'Clients', '☷'), ('admin.calls', 'Wholesale & retail', '↗'), ('admin.integration', 'Integrations', '≡')] if current_user.is_admin else [('portal.dashboard', 'Overview', '◫'), ('portal.calls', 'Call history', '↗'), ('portal.trunks', 'SIP accounts', '☷'), ('portal.billing', 'Billing & invoices', '≡')] %}
+      {% for endpoint, label, symbol in navigation %}
+      <a href="{{ url_for(endpoint) }}" {% if request.endpoint == endpoint %}aria-current="page"{% endif %}><span aria-hidden="true">{{ symbol }}</span>{{ label }}</a>
       {% endfor %}
     </nav>
-    <div class="sidebar-bottom"><span class="eyebrow">YOUR ORGANISATION</span><strong>{{ current_user.tenant.name }}</strong><span class="muted">{{ current_user.email }}</span><form action="{{ url_for('portal.logout') }}" method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="text-button" type="submit">Sign out <span aria-hidden="true">↗</span></button></form></div>
+    <div class="sidebar-bottom"><span class="eyebrow">{{ 'PLATFORM ACCESS' if current_user.is_admin else 'YOUR ORGANISATION' }}</span><strong>{{ 'Administrator' if current_user.is_admin else current_user.tenant.name }}</strong><span class="muted">{{ current_user.email }}</span><form action="{{ url_for('portal.logout') }}" method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="text-button" type="submit">Sign out <span aria-hidden="true">↗</span></button></form></div>
   </aside>
   <div class="workspace">
-    <header class="topbar"><span>Osumtech <span class="muted">/ Customer portal</span></span><span class="currency-label">USD account</span></header>
+    <header class="topbar"><span>Osumtech <span class="muted">/ {{ 'Administration' if current_user.is_admin else 'Customer portal' }}</span></span><span class="currency-label">{{ 'Admin · USD' if current_user.is_admin else 'USD account' }}</span></header>
     <main id="main" class="main-content">
       {% for message in get_flashed_messages() %}<div class="notice" role="status">{{ message }}</div>{% endfor %}
       {% block content %}{% endblock %}

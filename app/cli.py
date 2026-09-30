@@ -14,17 +14,36 @@ from .models import Did, Ledger, LoginThrottle, SipAccount, Tenant, User, db, ut
 def register_commands(app):
     @app.cli.command('init-db')
     def init_db():
-        """Bootstrap the initial schema on an empty database (not an upgrade tool)."""
-        db.create_all()
-        if db.engine.dialect.name == 'postgresql':
-            db.session.execute(text('''CREATE OR REPLACE FUNCTION protect_billing_history() RETURNS trigger AS $$
-                BEGIN RAISE EXCEPTION 'Billing history is append-only'; END;
-                $$ LANGUAGE plpgsql'''))
-            for table in ('ledger', 'call', 'invoice'):
-                db.session.execute(text(f'DROP TRIGGER IF EXISTS immutable_history ON "{table}"'))
-                db.session.execute(text(f'CREATE TRIGGER immutable_history BEFORE UPDATE OR DELETE ON "{table}" FOR EACH ROW EXECUTE FUNCTION protect_billing_history()'))
-            db.session.commit()
-        click.echo('Initial schema ready. Use migrations for future schema changes.')
+        """Create or safely upgrade the schema. Does not create any accounts."""
+        from .schema import upgrade_schema
+        upgrade_schema()
+        click.echo('Schema version 2 ready. Create the first administrator with create-admin.')
+
+    @app.cli.command('upgrade-db')
+    def upgrade_db():
+        from .schema import upgrade_schema
+        upgrade_schema()
+        click.echo('Schema upgraded to version 2. Existing clients and billing history preserved.')
+
+    @app.cli.command('create-admin')
+    @click.option('--email', prompt=True)
+    @click.password_option()
+    def create_admin(email, password):
+        """Bootstrap one administrator without creating a tenant or demo records."""
+        from .models import AuditEvent
+        email = email.strip().lower()
+        if '@' not in email or len(email) > 254 or len(password) < 12:
+            raise click.ClickException('Use a valid email and a password of at least 12 characters.')
+        if db.session.scalar(select(User.id).where(User.is_admin.is_(True))):
+            raise click.ClickException('An administrator already exists. Use reset-password for recovery.')
+        if db.session.scalar(select(User.id).where(User.email == email)):
+            raise click.ClickException('Email belongs to an existing customer. Choose a separate administrator email.')
+        user = User(email=email, password_hash=generate_password_hash(password), is_admin=True, tenant_id=None)
+        db.session.add(user)
+        db.session.flush()
+        db.session.add(AuditEvent(actor_id=user.id, action='admin.bootstrap', target=str(user.id), details={}))
+        db.session.commit()
+        click.echo('Administrator created. Sign in and add clients from the dashboard.')
 
     @app.cli.command('create-tenant')
     @click.option('--name', prompt=True)

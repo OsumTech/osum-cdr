@@ -3,13 +3,14 @@
 ## Rating and ledger
 
 Currency is USD. Decimal amounts retain six places; floating point is never used.
-Prefixes `441`/`442` cost USD 0.016000/minute and `447` costs USD 0.028000/minute.
+New-client forms suggest USD 0.016000/minute for `441`/`442` and USD 0.028000/minute
+for `447`. The administrator sets each client's actual rates in the dashboard.
 International numbers accept `+`, `00`, spaces, parentheses and hyphens.
-Longest prefix wins; other destinations require an approved `FALLBACK_RATE`.
+Longest prefix wins; other destinations require an approved client fallback rate.
 
-`BILLING_INCREMENT_SECONDS=1` provisionally charges per second. Supported
+Client billing increments provisionally default to one second. Supported
 increments: 1, 6, 30, 60. Duration rounds up to the increment, then cost rounds
-half-up once to six decimals. Confirm this policy before enabling live sync.
+half-up once to six decimals. Confirm each client's policy before enabling live sync.
 Zero-duration calls are skipped. Existing calls retain their original rate.
 
 Every charge locks the tenant row and atomically inserts its source, ledger entry
@@ -22,6 +23,14 @@ the CDR arrives. Hiding a debit would hide a liability. Provider/PBX call admiss
 concurrency limits and suspension are separately required for prepaid enforcement.
 
 ## Subscriptions and invoices
+
+New number activation debits its initial CLI price and one-time setup fee in one
+transaction. The first recurring renewal is one month later. Retry or duplicate
+number assignment does not charge twice. Existing-number mapping posts no initial
+charge and uses the renewal date entered by the administrator. Initial/setup
+amounts and the number's recurring price are stored separately. Client CLI
+defaults apply only to future assignments; changing them does not change an
+existing number's price.
 
 Active DIDs renew for every date <= today, recovering missed runs. The original
 day is preserved: 31 January -> 28/29 February -> 31 March. Historical next-billing
@@ -47,11 +56,14 @@ The published schema documents timestamp, type, duration, destination and accoun
 but not a stable unique call ID. Before enabling imports:
 
 1. Ask DID Logic to confirm a stable, globally unique ID in the actual response.
-2. Set its top-level field name in `DIDLOGIC_CALL_ID_FIELD`. Never derive identity
+2. Set its top-level field name in **Integrations → Stable call-ID field**. Never derive identity
    from timestamp/number/duration; separate real calls may share those values.
-3. Set `SYNC_START_DATE` to the first date you deliberately intend to bill.
-4. Set the token privately in `.env`, confirm all rates, and validate the mapping.
-5. Only then set `LIVE_SYNC_ENABLED=true`.
+3. Set the first billing date in Integrations to the first date you intend to bill.
+4. Save the API token through the admin page, confirm USD wholesale costs and all
+   client rates, and test the connection. The preview makes read-only requests and
+   cannot post charges. Provider fields are allowlisted, not dumped wholesale.
+5. Only then click **Enable billing sync**. Saving or replacing settings disables
+   sync and invalidates the old test. Legacy token/sync environment settings are ignored.
 
 Initial sync starts at the configured date. Future syncs resume from a durable
 checkpoint with a day of overlap. Outages do not skip missed days. Very late calls
@@ -62,9 +74,27 @@ tokens, SIP secrets and wholesale response bodies.
 
 ## Current boundaries
 
-Tenant/user/trunk/DID setup, confirmed top-ups and password recovery use VPS
-operator commands. There is no reseller web-admin interface yet. Stripe/PayPal,
+Tenant/user/trunk/DID setup, confirmed top-ups and customer password recovery use
+the administrator dashboard. Only the initial admin and admin password recovery
+need VPS commands. The admin is not a tenant and customers cannot access admin routes.
+Stripe/PayPal,
 email delivery, low-balance alerts, suspension and self-service purchases are
 future work. No UI controls pretend those integrations are active. SQLite is
 local/test-only; production requires PostgreSQL. Full provider masking also
 requires a branded SIP hostname configured outside the portal.
+
+## Wholesale visibility and audit
+
+The import snapshots provider `per_minute` and `amount` alongside the applied
+retail rate and cost. An administrator must confirm these are non-negative USD
+costs before enabling billing. Missing provider values remain null and display
+as unavailable, never invented zeros. Margin totals exclude calls whose wholesale
+cost is unavailable and show the excluded count. Customer routes never render
+wholesale fields. Settings, token changes (without secret values), client changes,
+initial charges and top-ups are audited. PostgreSQL protects audit history from
+UPDATE/DELETE alongside billing records.
+
+Rates apply at import/posting time and are snapshotted on each call. Changes do
+not rerate previously imported calls, including deduplicated historical replays.
+The background worker still requires the VPS cron setup. Request sync queues work
+for its next scheduled cycle; a button does not imply a worker is running.

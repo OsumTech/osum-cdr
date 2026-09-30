@@ -1,0 +1,24 @@
+{% macro csrf(action='') -%}
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+{% if action %}<input type="hidden" name="action" value="{{ action }}">{% endif %}
+{%- endmacro %}
+
+{% macro field(name, label, value='', type='text', required=true, prefix='') -%}
+<div class="form-field">
+  <label for="{{ prefix }}{{ name }}">{{ label }}</label>
+  <input id="{{ prefix }}{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ value if value is not none and type != 'password' else '' }}" {% if required %}required{% endif %} {% if type == 'number' %}min="0" step="0.000001"{% endif %} {% if type == 'password' %}autocomplete="new-password"{% endif %}>
+</div>
+{%- endmacro %}
+
+{% macro rates(source) -%}
+<div class="form-grid">
+  {{ field('landline_rate', 'UK landline rate · USD/min', source['landline_rate']|default('0.016000'), 'number') }}
+  {{ field('mobile_rate', 'UK mobile rate · USD/min', source['mobile_rate']|default('0.028000'), 'number') }}
+  {{ field('fallback_rate', 'Other destinations · USD/min (optional)', source['fallback_rate']|default(''), 'number', false) }}
+  <div class="form-field"><label for="billing_increment">Billing increment</label><select id="billing_increment" name="billing_increment">{% for seconds in [1, 6, 30, 60] %}<option value="{{ seconds }}" {% if source['billing_increment']|default(1)|int == seconds %}selected{% endif %}>{{ seconds }} second{{ '' if seconds == 1 else 's' }}</option>{% endfor %}</select></div>
+  {{ field('cli_initial_cost', 'Initial CLI price · USD', source['cli_initial_cost']|default('0.00'), 'number') }}
+  {{ field('cli_setup_cost', 'One-time setup fee · USD', source['cli_setup_cost']|default('0.00'), 'number') }}
+  {{ field('cli_monthly_cost', 'Recurring CLI charge · USD/month', source['cli_monthly_cost']|default('5.00'), 'number') }}
+</div>
+<p class="form-help">Landline prefixes: 441 and 442. Mobile prefix: 447. A blank fallback stops billing for other destinations. Rates apply to newly imported calls; existing charges are never recalculated.</p>
+{%- endmacro %}
