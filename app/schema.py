@@ -4,7 +4,7 @@ from flask import current_app
 
 from .models import db
 
-VERSION = 2
+VERSION = 3
 
 
 def upgrade_schema():
@@ -46,6 +46,8 @@ def upgrade_schema():
             connection.execute(text('UPDATE tenant SET billing_increment = :increment, fallback_rate = :fallback'),
                                {'increment': current_app.config['BILLING_INCREMENT_SECONDS'],
                                 'fallback': current_app.config['FALLBACK_RATE']})
+        if 'tenant' in tables and 'vendor_cost_pricing' not in {c['name'] for c in inspect(connection).get_columns('tenant')}:
+            connection.execute(text('ALTER TABLE tenant ADD COLUMN vendor_cost_pricing BOOLEAN NOT NULL DEFAULT FALSE'))
         db.metadata.create_all(connection)
         if postgres:
             connection.execute(text('''CREATE OR REPLACE FUNCTION protect_billing_history() RETURNS trigger AS $$

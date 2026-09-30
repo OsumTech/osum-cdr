@@ -30,7 +30,8 @@ docker compose run --rm web flask --app app create-admin
 
 Enter your administrator email and a strong password. No client company,
 customer login, SIP account, number or demonstration record is created.
-`init-db` creates schema version 2; `upgrade-db` safely upgrades the first release.
+`init-db` creates schema version 3; `upgrade-db` safely upgrades earlier releases.
+Version 3 adds optional vendor-cost call pricing; existing clients keep their retail pricing.
 If you already created a customer in version 1, use a different email for the
 administrator; the existing customer remains intact.
 

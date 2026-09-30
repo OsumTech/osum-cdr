@@ -16,5 +16,6 @@
 .metric-label,.sidebar nav a,.metric a,.balance-panel a{font-size:14px}
 .balance-panel a{min-height:44px}
 /* Keep desktop navigation in view while the content pane scrolls independently. */
+.sidebar nav a[aria-current=page]{box-shadow:none}
 @media screen and (min-width:761px){.app-layout{height:100vh;height:100dvh;min-height:0;overflow:hidden}.sidebar{min-height:0;overflow-y:auto}.sidebar>*{flex-shrink:0}.workspace{min-height:0;overflow:hidden}.topbar,.workspace-footer{flex-shrink:0}.main-content{min-height:0;overflow-y:auto;scrollbar-gutter:stable}}
 @media print{body{background:white;color:#141210}.sidebar,.topbar,.workspace-footer,.button,.filter-form,.pagination{display:none}.app-layout{display:block}.main-content{padding:0}.records{border:0}.table-scroll{overflow:visible}thead{display:table-header-group}tr{break-inside:avoid}}

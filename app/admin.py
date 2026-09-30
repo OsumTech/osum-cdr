@@ -56,7 +56,8 @@ def rate_values():
     if increment not in (1, 6, 30, 60):
         raise ValueError('Choose a valid billing increment.')
     return {**{key: amount(key) for key in ('landline_rate', 'mobile_rate', 'cli_initial_cost', 'cli_setup_cost', 'cli_monthly_cost')},
-            'fallback_rate': amount('fallback_rate', optional=True), 'billing_increment': increment}
+            'fallback_rate': amount('fallback_rate', optional=True), 'billing_increment': increment,
+            'vendor_cost_pricing': request.form.get('vendor_cost_pricing') == 'on'}
 
 
 def login_values():

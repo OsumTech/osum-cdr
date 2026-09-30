@@ -17,6 +17,7 @@ class Tenant(db.Model):
     balance = db.Column(db.Numeric(18, 6), nullable=False, default=Decimal('0'))
     currency = db.Column(db.String(3), nullable=False, default='USD')
     active = db.Column(db.Boolean, nullable=False, default=True)
+    vendor_cost_pricing = db.Column(db.Boolean, nullable=False, default=False)
     landline_rate = db.Column(db.Numeric(18, 6), nullable=False, default=Decimal('0.016'))
     mobile_rate = db.Column(db.Numeric(18, 6), nullable=False, default=Decimal('0.028'))
     fallback_rate = db.Column(db.Numeric(18, 6))

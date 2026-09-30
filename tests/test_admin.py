@@ -25,6 +25,39 @@ def pricing(**overrides):
             'email': 'new@example.test', 'password': 'customer-test-password', 'active': 'on', **overrides}
 
 
+def test_vendor_cost_pricing_exact_charge_and_replay(app, admin_client):
+    response = admin_client.post('/admin/clients/1', data=pricing(action='settings', vendor_cost_pricing='on', billing_increment='60'))
+    assert response.status_code == 302
+    tenant = db.session.get(Tenant, 1)
+    assert tenant.vendor_cost_pricing is True
+    before = tenant.balance
+    started = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    assert bill_call(1, 'vendor-pass-through', started, '33123456789', 5, wholesale_cost='0.00083')
+    call = db.session.scalar(select(Call).where(Call.vendor_call_id == 'vendor-pass-through'))
+    assert call.cost == call.wholesale_cost == Decimal('0.000830')
+    assert call.billed_seconds == 5
+    assert call.rate_label == 'Vendor cost (effective rate)'
+    assert tenant.balance == before - Decimal('0.000830')
+    response = admin_client.post('/admin/clients/1', data=pricing(action='settings'))
+    assert response.status_code == 302
+    assert not bill_call(1, 'vendor-pass-through', started, '33123456789', 5, wholesale_cost='0.00083')
+    assert db.session.get(Tenant, 1).balance == before - Decimal('0.000830')
+
+
+def test_vendor_cost_missing_fails_and_zero_is_valid(app):
+    tenant = db.session.get(Tenant, 1)
+    tenant.vendor_cost_pricing = True
+    db.session.commit()
+    before = tenant.balance
+    started = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    with pytest.raises(ValueError, match='actual provider charge'):
+        bill_call(1, 'missing-cost', started, '447700900123', 10)
+    assert db.session.scalar(select(func.count(Call.id))) == 0
+    assert tenant.balance == before
+    assert bill_call(1, 'free-call', started, '447700900123', 10, wholesale_cost=0)
+    assert tenant.balance == before
+
+
 def test_customer_cannot_access_admin(signed_in):
     for path in ('/admin/', '/admin/clients', '/admin/clients/new', '/admin/clients/1', '/admin/integrations', '/admin/calls'):
         assert signed_in.get(path).status_code == 403

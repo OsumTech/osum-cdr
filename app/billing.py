@@ -107,17 +107,28 @@ def bill_call(account_id, vendor_call_id, started_at, destination, duration, who
                 raise ValueError('Provider call ID conflicts with a previously billed call.')
             db.session.rollback()
             return False
-        number, seconds, rate, cost, label = rate_call(destination, duration, tenant)
         wholesale_rate = decimal_amount(wholesale_rate) if wholesale_rate is not None else None
         wholesale_cost = decimal_amount(wholesale_cost) if wholesale_cost is not None else None
         if (wholesale_rate is not None and wholesale_rate < 0) or (wholesale_cost is not None and wholesale_cost < 0):
             raise ValueError('Wholesale values must be non-negative costs in USD.')
+        if tenant.vendor_cost_pricing:
+            if isinstance(duration, bool) or not isinstance(duration, int) or duration <= 0:
+                raise ValueError('Answered duration must be a positive integer.')
+            if wholesale_cost is None:
+                raise ValueError('Vendor-cost pricing requires the actual provider charge; no charge posted.')
+            seconds, cost = duration, wholesale_cost
+            rate = decimal_amount(cost * 60 / Decimal(duration))
+            label = 'Vendor cost (effective rate)'
+        else:
+            number, seconds, rate, cost, label = rate_call(destination, duration, tenant)
         db.session.add(Call(tenant_id=tenant.id, sip_account_id=account.id,
                             vendor_call_id=str(vendor_call_id), started_at=started_at,
                             destination=number, duration=duration, billed_seconds=seconds,
                             rate=rate, cost=cost, rate_label=label,
                             wholesale_rate=wholesale_rate, wholesale_cost=wholesale_cost))
-        post_entry(tenant, f'call:{vendor_call_id}', 'usage', f'Call to +{number} · {seconds}s billed', -cost)
+        description = (f'Call to +{number} · vendor cost' if tenant.vendor_cost_pricing
+                       else f'Call to +{number} · {seconds}s billed')
+        post_entry(tenant, f'call:{vendor_call_id}', 'usage', description, -cost)
         db.session.commit()
         return True
     except Exception:

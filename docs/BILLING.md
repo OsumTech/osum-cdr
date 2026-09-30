@@ -98,3 +98,15 @@ Rates apply at import/posting time and are snapshotted on each call. Changes do
 not rerate previously imported calls, including deduplicated historical replays.
 The background worker still requires the VPS cron setup. Request sync queues work
 for its next scheduled cycle; a button does not imply a worker is running.
+# Vendor-cost call pricing
+
+In client pricing, enable **Use vendor cost for calls — no uplift** to debit the
+provider's final USD call charge, stored to six decimal places. Zero charges are
+valid; a missing or invalid charge stops the import for that call. Retail prefix
+rates, fallback rates and retail billing increments are ignored in this mode.
+The stored rate is an effective rate calculated from cost and answered duration,
+not a claim about the provider tariff or its billing increments. Provider tariff
+information, when available, remains separately stored as the wholesale rate.
+CLI initial, setup and recurring charges continue to use the configured prices.
+Changes affect newly imported calls only; retries do not reprice existing calls.
+Existing clients retain retail pricing after the version 3 database upgrade.

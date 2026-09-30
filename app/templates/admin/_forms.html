@@ -11,6 +11,8 @@
 {%- endmacro %}
 
 {% macro rates(source) -%}
+<label class="checkbox"><input type="checkbox" name="vendor_cost_pricing" {% if source['vendor_cost_pricing']|default(false) %}checked{% endif %}>Use vendor cost for calls — no uplift</label>
+<p class="form-help">When enabled, each call is charged at the provider's final cost. The retail rates and increment below are ignored. Missing provider costs stop billing. CLI and setup charges remain as configured. Applies only to newly imported calls.</p>
 <div class="form-grid">
   {{ field('landline_rate', 'UK landline rate · USD/min', source['landline_rate']|default('0.016000'), 'number') }}
   {{ field('mobile_rate', 'UK mobile rate · USD/min', source['mobile_rate']|default('0.028000'), 'number') }}

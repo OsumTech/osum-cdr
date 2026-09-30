@@ -8,8 +8,17 @@ from app.schema import upgrade_schema
 def test_fresh_schema_upgrade_is_idempotent(app):
     upgrade_schema()
     upgrade_schema()
-    assert db.session.get(SchemaVersion, 1).version == 2
+    assert db.session.get(SchemaVersion, 1).version == 3
     assert db.session.get(Tenant, 1).name == 'Test Company A'
+
+
+def test_v2_upgrade_defaults_to_existing_retail_pricing(app):
+    db.session.remove()
+    with db.engine.begin() as connection:
+        connection.execute(text('ALTER TABLE tenant DROP COLUMN vendor_cost_pricing'))
+    upgrade_schema()
+    upgrade_schema()
+    assert db.session.get(Tenant, 1).vendor_cost_pricing is False
 
 
 def test_v1_upgrade_preserves_existing_customer_and_rates(app):
