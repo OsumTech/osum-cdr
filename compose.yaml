@@ -1,0 +1,61 @@
+name: osum-cdr
+x-app: &app
+  build: .
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql+psycopg://osum:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/osum
+  depends_on:
+    db:
+      condition: service_healthy
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  read_only: true
+  tmpfs:
+    - /tmp
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: osum
+      POSTGRES_USER: osum
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U osum -d osum']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  web:
+    <<: *app
+    healthcheck:
+      test: [CMD, python, -c, "import os,urllib.request; r=urllib.request.Request('http://127.0.0.1:8000/health',headers={'Host':os.environ.get('DOMAIN','cdr.asumtech.net')}); urllib.request.urlopen(r,timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+  nginx:
+    image: nginx:stable-alpine
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./deploy/nginx-active:/etc/nginx/conf.d:ro
+      - certbot_webroot:/var/www/certbot:ro
+      - letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - web
+    restart: unless-stopped
+  certbot:
+    image: certbot/certbot:latest
+    profiles: [tools]
+    volumes:
+      - certbot_webroot:/var/www/certbot
+      - letsencrypt:/etc/letsencrypt
+volumes:
+  postgres_data:
+  certbot_webroot:
+  letsencrypt:

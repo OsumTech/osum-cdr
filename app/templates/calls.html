@@ -1,0 +1,8 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">USAGE & ACTIVITY</p><h1>Call history</h1><p class="muted">Answered calls and their rated costs, in USD.</p></div></div>
+<form class="filter-form" method="get"><div><label for="destination">Destination number</label><input id="destination" name="destination" value="{{ query }}" placeholder="e.g. 447" maxlength="32"></div><button class="button primary">Filter calls</button>{% if query %}<a class="button" href="{{ url_for('portal.calls') }}">Clear filter</a>{% endif %}</form>
+<section class="records"><div class="section-heading"><h2>{{ pagination.total }} call{{ '' if pagination.total == 1 else 's' }}</h2><span class="muted">Times shown in UTC</span></div>
+{% if pagination.items %}{% set calls = pagination.items %}{% include '_calls.html' %}{% else %}<div class="empty-state"><h3>{{ 'No matching calls.' if query else 'No calls yet.' }}</h3><p>{{ 'Try a different destination number.' if query else 'Your answered calls will appear here after synchronisation.' }}</p></div>{% endif %}</section>
+{% include '_pagination.html' %}
+{% endblock %}

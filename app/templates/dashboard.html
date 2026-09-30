@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">YOUR ACCOUNT AT A GLANCE</p><h1>Overview</h1><p class="muted">A clear view of your voice services.</p></div><a class="button" href="{{ url_for('portal.billing') }}">View billing <span aria-hidden="true">↗</span></a></div>
+<section class="metrics" aria-label="Account summary">
+  <article class="balance-panel"><p class="metric-label">Available balance <span>USD</span></p><p class="balance-value">${{ current_user.tenant.balance|money }}</p><p class="metric-note">Prepaid account{% if current_user.tenant.balance <= 0 %} · Top-up required{% endif %}</p><a href="{{ url_for('portal.billing') }}">View transactions <span aria-hidden="true">↗</span></a></article>
+  <article class="metric"><p class="metric-label">Call spend this month</p><p class="metric-value">${{ usage|money }}</p><p class="metric-note">USD · based on call date</p></article>
+  <article class="metric"><p class="metric-label">Talk time this month</p><p class="metric-value">{{ (seconds / 60)|round(1) }} <small>min</small></p><p class="metric-note">Answered calls</p></article>
+  <article class="metric"><p class="metric-label">Active SIP accounts</p><p class="metric-value">{{ accounts|length }}</p><a href="{{ url_for('portal.trunks') }}">Manage your connections <span aria-hidden="true">↗</span></a></article>
+</section>
+{% if current_user.tenant.balance <= 0 %}<div class="notice"><strong>Your balance needs attention.</strong> Contact your account manager to arrange a top-up.</div>{% endif %}
+<section class="records"><div class="section-heading"><div><h2>Recent calls</h2><p class="muted">Your 50 most recent answered calls. All times are UTC.</p></div><a class="text-link" href="{{ url_for('portal.calls') }}">View call history ↗</a></div>
+{% if calls %}{% include '_calls.html' %}{% else %}<div class="empty-state"><span class="empty-icon" aria-hidden="true">↗</span><h3>Your call history starts here.</h3><p>Answered calls will appear after your SIP account is connected<br class="desktop-break"> and usage has been synchronised.</p><a class="button" href="{{ url_for('portal.trunks') }}">View SIP accounts</a></div>{% endif %}
+</section>
+<div class="account-notes"><div><h3>Every charge, accounted for.</h3><p>Review call charges, number subscriptions and payments in your billing ledger.</p></div><div><h3>Your connections, in one place.</h3><p>Find your assigned numbers and connection details under SIP accounts.</p></div></div>
+{% endblock %}

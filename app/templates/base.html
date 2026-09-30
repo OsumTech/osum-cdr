@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title or 'Sign in' }} · Osumtech</title>
+  <link rel="icon" href="{{ url_for('static', filename='brand/favicon.ico') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='portal.css') }}">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+{% if current_user.is_authenticated %}
+<div class="app-layout">
+  <aside class="sidebar">
+    <a class="brand" href="{{ url_for('portal.dashboard') }}" aria-label="Osumtech overview"><img src="{{ url_for('static', filename='brand/logo-light.png') }}" width="192" height="48" alt="Osumtech"></a>
+    <p class="eyebrow workspace-label">VOICE WORKSPACE</p>
+    <nav aria-label="Main navigation">
+      {% for endpoint, label, symbol in [('dashboard', 'Overview', '◫'), ('calls', 'Call history', '↗'), ('trunks', 'SIP accounts', '☷'), ('billing', 'Billing & invoices', '≡')] %}
+      <a href="{{ url_for('portal.' ~ endpoint) }}" {% if request.endpoint == 'portal.' ~ endpoint %}aria-current="page"{% endif %}><span aria-hidden="true">{{ symbol }}</span>{{ label }}</a>
+      {% endfor %}
+    </nav>
+    <div class="sidebar-bottom"><span class="eyebrow">YOUR ORGANISATION</span><strong>{{ current_user.tenant.name }}</strong><span class="muted">{{ current_user.email }}</span><form action="{{ url_for('portal.logout') }}" method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="text-button" type="submit">Sign out <span aria-hidden="true">↗</span></button></form></div>
+  </aside>
+  <div class="workspace">
+    <header class="topbar"><span>Osumtech <span class="muted">/ Customer portal</span></span><span class="currency-label">USD account</span></header>
+    <main id="main" class="main-content">
+      {% for message in get_flashed_messages() %}<div class="notice" role="status">{{ message }}</div>{% endfor %}
+      {% block content %}{% endblock %}
+    </main>
+    <footer class="workspace-footer">Good technology. Great possibilities.<span>Osumtech · Voice & billing</span></footer>
+  </div>
+</div>
+{% else %}
+{% block public_content %}{% endblock %}
+{% endif %}
+</body>
+</html>

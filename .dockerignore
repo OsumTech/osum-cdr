@@ -1,0 +1,11 @@
+.git
+.venv
+.env
+.env.*
+out
+instance
+__pycache__
+.pytest_cache
+tests
+backups
+certbot

@@ -1,0 +1,4 @@
+{% extends 'base.html' %}
+{% macro error_content() %}<div class="empty-state"><p class="eyebrow">ERROR {{ code }}</p><h1>{{ 'Page not found.' if code == 404 else 'Something went wrong.' }}</h1><p>{{ 'Check the address or return to your account.' if code == 404 else 'Refresh the page and try again. If the problem continues, contact your account manager.' }}</p><a class="button" href="{{ url_for('portal.dashboard') }}">Return to overview</a></div>{% endmacro %}
+{% block content %}{{ error_content() }}{% endblock %}
+{% block public_content %}<main id="main">{{ error_content() }}</main>{% endblock %}
