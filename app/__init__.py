@@ -26,7 +26,7 @@ def create_app(test_config=None):
         SESSION_COOKIE_SAMESITE='Lax',
         PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
         MAX_CONTENT_LENGTH=1024 * 1024,
-        TRUSTED_HOSTS=[os.getenv('DOMAIN', 'cdr.asumtech.net')] if production else ['localhost', '127.0.0.1'],
+        TRUSTED_HOSTS=[os.getenv('DOMAIN', 'cdr.osumtech.net')] if production else ['localhost', '127.0.0.1'],
         BILLING_INCREMENT_SECONDS=int(os.getenv('BILLING_INCREMENT_SECONDS', '1')),
         FALLBACK_RATE=os.getenv('FALLBACK_RATE') or None,
     )

@@ -1,9 +1,9 @@
-﻿# Osumtech VoIP Billing & Reseller Portal
+# Osumtech VoIP Billing & Reseller Portal
 
 Multi-tenant prepaid telecom billing and customer portal for Osumtech.
 
 Flask, PostgreSQL, Python background workers, Docker Compose and Nginx.
-Deployment domain: **cdr.asumtech.net**.
+Deployment domain: **cdr.osumtech.net**.
 
 ## Application
 

@@ -1,4 +1,4 @@
-# Deploy to cdr.asumtech.net
+# Deploy to cdr.osumtech.net
 
 Assumes Ubuntu 24.04, Docker Engine with Compose, and the repository at
 `/root/apps/osum-cdr`. Run on the VPS as root. DNS must point to this server and
@@ -55,14 +55,14 @@ Replace `YOUR_EMAIL` with your renewal contact address. Read and accept the
 Let's Encrypt terms when Certbot prompts you.
 
 ```sh
-docker compose run --rm certbot certonly --webroot -w /var/www/certbot --email YOUR_EMAIL -d cdr.asumtech.net
+docker compose run --rm certbot certonly --webroot -w /var/www/certbot --email YOUR_EMAIL -d cdr.osumtech.net
 cp deploy/nginx-https.conf deploy/nginx-active/default.conf
 docker compose exec nginx nginx -t
 docker compose exec nginx nginx -s reload
-curl --fail https://cdr.asumtech.net/health
+curl --fail https://cdr.osumtech.net/health
 ```
 
-Visit https://cdr.asumtech.net and sign in. Health verifies database connectivity,
+Visit https://cdr.osumtech.net and sign in. Health verifies database connectivity,
 not worker freshness.
 
 ## 5. Configure everything else in the admin dashboard
@@ -141,7 +141,7 @@ docker compose stop web
 docker compose run --rm web flask --app app upgrade-db
 docker compose up -d web
 docker compose restart nginx
-curl --fail https://cdr.asumtech.net/health
+curl --fail https://cdr.osumtech.net/health
 ```
 
 Pause only the Osumtech cron entries during a schema upgrade, then restore them
