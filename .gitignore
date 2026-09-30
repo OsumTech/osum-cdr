@@ -1,0 +1,41 @@
+﻿# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Local runtime and generated files
+out/
+instance/
+logs/
+*.log
+*.sqlite
+*.sqlite3
+backups/
+certbot/
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+node_modules/
+.next/
+dist/
+build/
