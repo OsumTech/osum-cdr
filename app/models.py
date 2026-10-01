@@ -110,6 +110,7 @@ class Call(db.Model):
     rate_label = db.Column(db.String(80), nullable=False)
     wholesale_rate = db.Column(db.Numeric(18, 6))
     wholesale_cost = db.Column(db.Numeric(18, 6))
+    estimate = db.relationship('CallEstimate', uselist=False, lazy='selectin', back_populates='call')
     __table_args__ = (
         db.ForeignKeyConstraint(['sip_account_id', 'tenant_id'], ['sip_account.id', 'sip_account.tenant_id']),
         db.ForeignKeyConstraint(['did_id', 'tenant_id'], ['did.id', 'did.tenant_id']),
@@ -234,6 +235,27 @@ class WebhookSettings(db.Model):
     secret_hash = db.Column(db.String(64), nullable=False)
     secret_encrypted = db.Column(db.Text, nullable=False)
     __table_args__ = (db.CheckConstraint('id = 1'),)
+
+
+class ProviderRate(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    landline_rate = db.Column(db.Numeric(18, 6), nullable=False)
+    mobile_rate = db.Column(db.Numeric(18, 6), nullable=False)
+    fallback_rate = db.Column(db.Numeric(18, 6))
+    billing_increment = db.Column(db.Integer, nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+    __table_args__ = (db.CheckConstraint('landline_rate >= 0 AND mobile_rate >= 0 AND (fallback_rate IS NULL OR fallback_rate >= 0)'),
+                     db.CheckConstraint('billing_increment IN (1, 6, 30, 60)'))
+
+
+class CallEstimate(db.Model):
+    call_id = db.Column(db.Integer, db.ForeignKey('call.id'), primary_key=True)
+    provider_rate_id = db.Column(db.Integer, db.ForeignKey('provider_rate.id'), nullable=False)
+    rate = db.Column(db.Numeric(18, 6), nullable=False)
+    cost = db.Column(db.Numeric(18, 6), nullable=False)
+    billed_seconds = db.Column(db.Integer, nullable=False)
+    call = db.relationship(Call, back_populates='estimate')
+    __table_args__ = (db.CheckConstraint('rate >= 0 AND cost >= 0 AND billed_seconds > 0'),)
 
 
 class WebhookBilling(db.Model):

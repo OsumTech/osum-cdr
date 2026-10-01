@@ -1,0 +1,15 @@
+{% extends 'base.html' %}{% import 'admin/_forms.html' as forms with context %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">PROVIDER PRICING</p><h1>Wholesale rates</h1><p class="muted">USD estimates for outbound calls. Customer retail rates remain in client settings.</p></div><a class="button" href="{{ url_for('admin.calls') }}">Wholesale & retail</a></div>
+{% if error %}<div class="notice" role="alert">{{ error }}</div>{% endif %}
+<section class="admin-panel"><h2>DID Logic outbound rates</h2>
+<p>Enter your contracted provider rates. Estimates use billable seconds rounded up to the provider increment. They exclude additional fees and are not final provider charges.</p>
+{% if current %}<p class="form-help">Current rates effective from {{ current.created_at.strftime('%d %b %Y %H:%M:%S') }} UTC.</p>{% endif %}
+<form method="post">{{ forms.csrf() }}<div class="form-grid">
+{{ forms.field('landline_rate', 'UK landline (441 / 442) - USD/min', source.get('landline_rate', ''), 'number') }}
+{{ forms.field('mobile_rate', 'UK mobile (447) - USD/min', source.get('mobile_rate', ''), 'number') }}
+{{ forms.field('fallback_rate', 'Other destinations - USD/min (optional)', source.get('fallback_rate', ''), 'number', false) }}
+<div class="form-field"><label for="billing_increment">Provider billing increment</label><select id="billing_increment" name="billing_increment">{% for size in [1, 6, 30, 60] %}<option value="{{ size }}" {% if source.get('billing_increment', 1)|int == size %}selected{% endif %}>{{ size }} seconds</option>{% endfor %}</select></div></div>
+<p class="form-help">Saving creates a new rate version effective now. Existing call estimates stay fixed. Missing fallback rates leave other destinations without an estimate. Inbound and vendor-cost customers still await actual charges.</p>
+<button class="button primary">Save wholesale rates</button></form></section>
+{% endblock %}

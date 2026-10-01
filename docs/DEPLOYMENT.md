@@ -212,3 +212,22 @@ starting after activation use each mapped client's custom rates. Older events
 are not charged. API posting is locked to avoid duplicate deductions. Inbound
 and vendor-cost clients remain pending actual wholesale charges. See
 [webhook billing behaviour](WEBHOOK_TEST.md) before testing charges.
+
+## Provider wholesale estimates (schema 7)
+
+Back up and follow the upgrade commands above, including `upgrade-db`.
+Open **Wholesale & retail > Provider wholesale rates** and save your actual
+contracted USD landline/mobile rates, optional fallback and provider increment.
+Client retail rates stay in client settings. Rates apply to calls starting after
+saving. Each newly billed webhook call snapshots its estimated wholesale rate,
+seconds and cost; later rate changes do not rewrite old estimates. Actual
+provider charges are stored separately and take precedence in the cost view.
+No estimates are backfilled onto older calls. Missing rates show Unavailable.
+Inbound and vendor-cost calls still require actual charges and remain pending.
+
+Manual verification: save wholesale rates, make a new answered custom-rate
+outbound call, then compare Wholesale & retail with the client settings. Expected
+wholesale estimate = provider rate * rounded provider seconds / 60, rounded to
+six decimal places. Margin = posted retail cost minus estimated wholesale cost.
+Check the client ledger still shows only its retail charge. Save different
+provider rates and verify the earlier call estimate stays unchanged.

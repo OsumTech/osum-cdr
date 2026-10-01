@@ -17,13 +17,13 @@ def register_commands(app):
         """Create or safely upgrade the schema. Does not create any accounts."""
         from .schema import upgrade_schema
         upgrade_schema()
-        click.echo('Schema version 6 ready. Create the first administrator with create-admin.')
+        click.echo('Schema version 7 ready. Create the first administrator with create-admin.')
 
     @app.cli.command('upgrade-db')
     def upgrade_db():
         from .schema import upgrade_schema
         upgrade_schema()
-        click.echo('Schema upgraded to version 6. Existing clients and billing history preserved.')
+        click.echo('Schema upgraded to version 7. Existing clients and billing history preserved.')
 
     @app.cli.command('create-admin')
     @click.option('--email', prompt=True)

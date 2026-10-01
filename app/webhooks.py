@@ -9,7 +9,7 @@ from werkzeug.exceptions import RequestEntityTooLarge
 from sqlalchemy import select, text
 
 from .billing import billing_mode_lock, locked_tenant, normalise_number, post_entry, rate_call
-from .models import Call, Did, WebhookBilling, WebhookEvent, WebhookSettings, db, utcnow
+from .models import Call, CallEstimate, Did, ProviderRate, WebhookBilling, WebhookEvent, WebhookSettings, db, utcnow
 
 webhooks = Blueprint('webhooks', __name__)
 
@@ -71,9 +71,20 @@ def charge_event(event):
                     result['reason'] = str(exc)
                 else:
                     key = 'webhook:' + hashlib.sha256(('outbound:' + event.call_id).encode()).hexdigest()
-                    db.session.add(Call(tenant_id=tenant.id, did_id=event.did_id, vendor_call_id=key,
+                    call = Call(tenant_id=tenant.id, did_id=event.did_id, vendor_call_id=key,
                         started_at=started, destination=number, duration=payload['billsec'],
-                        billed_seconds=seconds, rate=rate, cost=cost, rate_label='Webhook / ' + label))
+                        billed_seconds=seconds, rate=rate, cost=cost, rate_label='Webhook / ' + label)
+                    db.session.add(call)
+                    provider = db.session.scalar(select(ProviderRate).where(ProviderRate.created_at <= started)
+                                                 .order_by(ProviderRate.created_at.desc(), ProviderRate.id.desc()).limit(1))
+                    if provider:
+                        try:
+                            _, vendor_seconds, vendor_rate, vendor_cost, _ = rate_call(number, payload['billsec'], provider)
+                        except ValueError:
+                            pass  # No fallback estimate: retail billing is still valid.
+                        else:
+                            db.session.add(CallEstimate(call=call, provider_rate_id=provider.id,
+                                rate=vendor_rate, cost=vendor_cost, billed_seconds=vendor_seconds))
                     post_entry(tenant, 'call:' + key, 'usage', f'Call to +{number} / {seconds}s billed', -cost)
                     result = {'state': 'charged', 'cost': str(cost), 'rate': str(rate), 'seconds': seconds}
     event.payload = {**payload, 'billing': result}

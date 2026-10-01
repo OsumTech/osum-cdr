@@ -11,6 +11,7 @@ from werkzeug.security import generate_password_hash
 
 from .billing import activate_did, billing_mode_lock, decimal_amount, locked_tenant, normalise_number, top_up
 from .integrations import preview_calls, settings
+from .models import CallEstimate, ProviderRate
 from .models import AuditEvent, Call, CdrPartition, CsvReconciliation, Did, Integration, Ledger, SipAccount, Tenant, User, WebhookBilling, WebhookEvent, WebhookSettings, db, utcnow
 
 admin = Blueprint('admin', __name__, url_prefix='/admin')
@@ -151,6 +152,9 @@ def login_values():
 
 @admin.get('/')
 def dashboard():
+    estimated = db.session.execute(select(func.count(CallEstimate.call_id),
+        func.coalesce(func.sum(CallEstimate.cost), 0), func.coalesce(func.sum(Call.cost - CallEstimate.cost), 0))
+        .join(Call, Call.id == CallEstimate.call_id).where(Call.wholesale_cost.is_(None))).one()
     clients = db.session.scalar(select(func.count(Tenant.id)))
     totals = db.session.execute(select(func.coalesce(func.sum(Call.cost), 0),
         func.coalesce(func.sum(Call.wholesale_cost), 0), func.count(Call.id))).one()
@@ -159,7 +163,7 @@ def dashboard():
     calls = db.session.execute(select(Call, Tenant.name).join(Tenant, Tenant.id == Call.tenant_id).order_by(Call.id.desc()).limit(50)).all()
     events = db.session.scalars(select(AuditEvent).order_by(AuditEvent.id.desc()).limit(10)).all()
     return render_template('admin/dashboard.html', title='Admin overview', clients=clients, totals=totals,
-                           margin=comparable, missing=missing, calls=calls, integration=settings(), events=events)
+                           margin=comparable, missing=missing, calls=calls, integration=settings(), events=events, estimated=estimated)
 
 
 @admin.get('/clients')
@@ -399,14 +403,44 @@ def reconciliation():
 
 @admin.get('/calls')
 def calls():
+    per_page = request.args.get('per_page', 10, type=int)
+    if per_page not in (10, 25, 50, 100):
+        abort(400)
     tenant_id = request.args.get('tenant_id', type=int)
     statement = select(Call).order_by(Call.started_at.desc(), Call.id.desc())
     if tenant_id:
         statement = statement.where(Call.tenant_id == tenant_id)
-    pagination = db.paginate(statement, per_page=50, error_out=False)
+    pagination = db.paginate(statement, per_page=per_page, error_out=False)
     tenants = db.session.scalars(select(Tenant).order_by(Tenant.name)).all()
     return render_template('admin/calls.html', title='Wholesale & retail', pagination=pagination,
-                           tenants=tenants, tenant_names={t.id: t.name for t in tenants}, selected_tenant=tenant_id)
+                           tenants=tenants, tenant_names={t.id: t.name for t in tenants}, selected_tenant=tenant_id, per_page=per_page)
+
+
+@admin.route('/wholesale-rates', methods=['GET', 'POST'])
+def wholesale_rates():
+    current = db.session.scalar(select(ProviderRate).order_by(ProviderRate.created_at.desc(), ProviderRate.id.desc()).limit(1))
+    error = None
+    if request.method == 'POST':
+        try:
+            increment = int(request.form.get('billing_increment', '1'))
+            if increment not in (1, 6, 30, 60):
+                raise ValueError('Choose a supported billing increment.')
+            values = {'landline_rate': amount('landline_rate'), 'mobile_rate': amount('mobile_rate'),
+                      'fallback_rate': amount('fallback_rate', optional=True), 'billing_increment': increment}
+            record = ProviderRate(**values)
+            db.session.add(record)
+            db.session.flush()
+            audit('provider.rates.save', record.id, {key: str(value) for key, value in values.items()})
+            db.session.commit()
+            flash('Wholesale rates saved for calls starting from now. Existing costs and customer charges are unchanged.')
+            return redirect(url_for('admin.wholesale_rates'))
+        except ValueError as exc:
+            db.session.rollback()
+            error = str(exc)
+    source = request.form if error else ({key: getattr(current, key) for key in
+        ('landline_rate', 'mobile_rate', 'fallback_rate', 'billing_increment')} if current else {})
+    return render_template('admin/wholesale_rates.html', title='Provider wholesale rates', source=source,
+                           current=current, error=error), (400 if error else 200)
 
 
 @admin.route('/reconciliation/<int:partition_id>/csv', methods=['GET', 'POST'])

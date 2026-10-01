@@ -4,7 +4,7 @@ from flask import current_app
 
 from .models import db
 
-VERSION = 6
+VERSION = 7
 
 
 def upgrade_schema():
@@ -75,7 +75,7 @@ def upgrade_schema():
             connection.execute(text('''CREATE OR REPLACE FUNCTION protect_billing_history() RETURNS trigger AS $$
                 BEGIN RAISE EXCEPTION 'Billing history is append-only'; END;
                 $$ LANGUAGE plpgsql'''))
-            for table in ('ledger', 'call', 'invoice', 'audit_event', 'csv_reconciliation'):
+            for table in ('ledger', 'call', 'invoice', 'audit_event', 'csv_reconciliation', 'provider_rate', 'call_estimate'):
                 connection.execute(text(f'DROP TRIGGER IF EXISTS immutable_history ON "{table}"'))
                 connection.execute(text(f'CREATE TRIGGER immutable_history BEFORE UPDATE OR DELETE ON "{table}" FOR EACH ROW EXECUTE FUNCTION protect_billing_history()'))
         connection.execute(text('DELETE FROM schema_version WHERE id = 1'))
