@@ -22,3 +22,12 @@
 
 /* Keep long identifiers out of the scan view and scrolling near the calls. */
 .live-call-scroll{max-height:60vh;overflow:auto;overscroll-behavior:contain}.live-call-table{table-layout:fixed;min-width:760px;width:100%}.live-call-table th{position:sticky;top:0;background:var(--osum-soft);z-index:1}.live-call-table td{white-space:normal;overflow-wrap:anywhere;vertical-align:top}.live-call-table summary{cursor:pointer;min-height:44px}.call-identifier{font-family:monospace;font-size:12px;word-break:break-all}.live-call-table details p{margin-top:8px;font-size:13px}
+
+/* Overview charges stay compact without making the entire page a long table. */
+.overview-charges-scroll{max-height:min(420px,55vh);overflow:auto;overscroll-behavior:contain}
+.overview-charges-table{width:100%;min-width:580px;table-layout:fixed}
+.overview-charges-table th,.overview-charges-table td{padding:10px 12px;font-size:14px}
+.overview-charges-table th{position:sticky;top:0;background:var(--osum-soft);z-index:1}
+.overview-charges-table td{white-space:normal;overflow-wrap:anywhere;vertical-align:middle}
+.overview-charges-table td a{display:flex;align-items:center;min-height:44px}
+@media print{.overview-charges-scroll{max-height:none;overflow:visible}.overview-charges-table th{position:static}}

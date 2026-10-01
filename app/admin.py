@@ -162,9 +162,8 @@ def dashboard():
     comparable = db.session.scalar(select(func.coalesce(func.sum(Call.cost - Call.wholesale_cost), 0)).where(Call.wholesale_cost.is_not(None)))
     missing = db.session.scalar(select(func.count(Call.id)).where(Call.wholesale_cost.is_(None)))
     calls = db.session.execute(select(Call, Tenant.name).join(Tenant, Tenant.id == Call.tenant_id).order_by(Call.id.desc()).limit(50)).all()
-    events = db.session.scalars(select(AuditEvent).order_by(AuditEvent.id.desc()).limit(10)).all()
     return render_template('admin/dashboard.html', title='Admin overview', clients=clients, totals=totals,
-                           margin=comparable, missing=missing, calls=calls, integration=settings(), events=events, estimated=estimated)
+                           margin=comparable, missing=missing, calls=calls, estimated=estimated)
 
 
 @admin.get('/clients')
