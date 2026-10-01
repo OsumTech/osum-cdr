@@ -76,6 +76,13 @@ def test_admin_inbox_remapping_rotation_customer_denied(receiver, client):
     record = db.session.scalar(select(WebhookEvent))
     client.post('/login', data={'email': owner.email, 'password': 'webhook-test-password'})
     assert client.get('/admin/webhooks').status_code == 200
+    filtered = client.get('/admin/webhooks?status=unmapped&direction=outbound')
+    assert filtered.status_code == 200
+    assert b'test-call-1' in filtered.data and b'ANSWERED' in filtered.data
+    assert b'test-call-1' not in client.get('/admin/webhooks?status=mapped').data
+    assert b'test-call-1' not in client.get('/admin/webhooks?direction=inbound').data
+    assert b'test-call-1' not in client.get('/admin/webhooks?tenant_id=2').data
+    assert client.get('/admin/webhooks?status=invalid').status_code == 400
     assert client.post('/admin/webhooks', data={'action': 'remap', 'event_id': record.id}).status_code == 400
     db.session.add(Did(tenant_id=2, number='+442071234568', monthly_charge=0, billing_day=1, next_billing_date=date(2027, 1, 1)))
     db.session.commit()

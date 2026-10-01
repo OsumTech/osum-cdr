@@ -1,4 +1,4 @@
-"""Opt-in local browser QA. Uses only disposable test accounts and records."""
+﻿"""Opt-in local browser QA. Uses only disposable test accounts and records."""
 import os
 import threading
 from pathlib import Path
@@ -173,12 +173,15 @@ def test_admin_responsive_onboarding(app, monkeypatch):
             assert page.get_by_text('Connected. Fetched 0 real CDRs', exact=False).count() >= 1
             page.screenshot(path=str(results / 'admin-integration.png'), full_page=True)
             page.goto(f'http://localhost:{server.server_port}/admin/webhooks')
+            page.screenshot(path=str(results / 'live-calls-desktop.png'), full_page=True)
             page.get_by_role('button', name='Create shadow receiver').click()
             assert page.get_by_label('Private CDR webhook URL').input_value().startswith('https://')
             page.get_by_role('heading', name='Receiver enabled', exact=True).wait_for()
+            page.get_by_text('Receiver configuration and private URL', exact=True).click()
             page.get_by_role('button', name='Pause receiver').click()
             page.get_by_role('heading', name='Receiver paused', exact=True).wait_for()
             browser.close()
     finally:
         server.shutdown()
         thread.join(timeout=5)
+

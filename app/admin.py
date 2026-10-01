@@ -59,11 +59,27 @@ def webhook_settings():
     if config:
         secret = Fernet(current_app.config['ENCRYPTION_KEY']).decrypt(config.secret_encrypted.encode()).decode()
         receiver_url = url_for('webhooks.didlogic', secret=secret, _external=True, _scheme='https')
-    events = db.paginate(select(WebhookEvent).order_by(WebhookEvent.last_received_at.desc(), WebhookEvent.id.desc()),
+    selected_status = request.args.get('status', '')
+    selected_direction = request.args.get('direction', '')
+    selected_tenant = request.args.get('tenant_id', type=int)
+    if selected_status not in ('', 'mapped', 'unmapped', 'conflict') or selected_direction not in ('', 'inbound', 'outbound'):
+        abort(400)
+    query = select(WebhookEvent)
+    if selected_status:
+        query = query.where(WebhookEvent.status == selected_status)
+    if selected_direction:
+        query = query.where(WebhookEvent.direction == selected_direction)
+    if selected_tenant:
+        query = query.where(WebhookEvent.tenant_id == selected_tenant)
+    counts = dict(db.session.execute(select(WebhookEvent.status, func.count(WebhookEvent.id)).group_by(WebhookEvent.status)).all())
+    last_received = db.session.scalar(select(func.max(WebhookEvent.last_received_at)))
+    events = db.paginate(query.order_by(WebhookEvent.received_at.desc(), WebhookEvent.id.desc()),
                          per_page=50, error_out=False)
     names = dict(db.session.execute(select(Tenant.id, Tenant.name)).all())
-    return render_template('admin/webhooks.html', title='Webhook shadow test', config=config, receiver_url=receiver_url,
-                           events=events, tenant_names=names, error=error), (400 if error else 200)
+    return render_template('admin/webhooks.html', title='Live calls', config=config, receiver_url=receiver_url,
+                           events=events, tenant_names=names, error=error, counts=counts,
+                           last_received=last_received, selected_status=selected_status,
+                           selected_direction=selected_direction, selected_tenant=selected_tenant), (400 if error else 200)
 
 
 @admin.before_request

@@ -14,7 +14,7 @@
     <a class="brand" href="{{ url_for('portal.dashboard') }}" aria-label="Osumtech overview"><img src="{{ url_for('static', filename='brand/logo-light.png') }}" width="192" height="48" alt="Osumtech"></a>
     <p class="eyebrow workspace-label">{{ 'ADMIN WORKSPACE' if current_user.is_admin else 'VOICE WORKSPACE' }}</p>
     <nav aria-label="Main navigation">
-      {% set navigation = [('admin.dashboard', 'Overview', '◫'), ('admin.clients', 'Clients', '☷'), ('admin.calls', 'Wholesale & retail', '↗'), ('admin.integration', 'Integrations', '≡')] if current_user.is_admin else [('portal.dashboard', 'Overview', '◫'), ('portal.calls', 'Call history', '↗'), ('portal.trunks', 'SIP accounts', '☷'), ('portal.billing', 'Billing & invoices', '≡')] %}
+      {% set navigation = [('admin.dashboard', 'Overview', '◫'), ('admin.clients', 'Clients', '☷'), ('admin.calls', 'Wholesale & retail', '↗'), ('admin.webhook_settings', 'Live calls', '↗'), ('admin.integration', 'History & reconciliation', '≡')] if current_user.is_admin else [('portal.dashboard', 'Overview', '◫'), ('portal.calls', 'Call history', '↗'), ('portal.trunks', 'SIP accounts', '☷'), ('portal.billing', 'Billing & invoices', '≡')] %}
       {% for endpoint, label, symbol in navigation %}
       <a href="{{ url_for(endpoint) }}" {% if request.endpoint == endpoint %}aria-current="page"{% endif %}><span aria-hidden="true">{{ symbol }}</span>{{ label }}</a>
       {% endfor %}

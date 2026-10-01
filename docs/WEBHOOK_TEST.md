@@ -7,12 +7,20 @@ for billing. Do not disable it or count inbox events as additional billed usage.
 
 ## Configure and test
 
+The admin sidebar now opens **Live calls** directly. Filter by client, direction
+or mapping status, review provider call outcomes, and compare call time with
+receipt time. Summary counts cover all stored events; the table follows the
+selected filters. Refresh calls to fetch the latest saved deliveries.
+Receiver configuration and its private URL are collapsed after setup.
+Historical API tools remain under **History & reconciliation**. This navigation
+change does not start or stop existing workers, import history or post charges.
+
 1. Deploy the image and run `upgrade-db`. Install the current
    `deploy/nginx-https.conf` into `deploy/nginx-active/default.conf`, run
    `nginx -t` and reload. The webhook location disables access/error logging of
    its bearer URL. The image also uses a Gunicorn access logger that omits that
    route. Any additional reverse proxy must likewise exclude or redact it.
-2. Open Integrations → Webhook shadow test. Create a shadow receiver and copy its
+2. Open Live calls → Receiver configuration and private URL. Create a shadow receiver and copy its
    private HTTPS URL into DID Logic's CDR webhook setting. Keep the URL secret;
    never paste it into chat, analytics, monitoring URLs or public logs.
 3. Assign active CLIs/DIDs to the correct client. Outbound mapping uses `src`;
