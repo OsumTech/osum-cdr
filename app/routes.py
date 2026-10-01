@@ -1,6 +1,6 @@
 import hashlib
 import hmac
-from datetime import timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from io import BytesIO
 
 from cryptography.fernet import Fernet
@@ -78,11 +78,43 @@ def dashboard():
 @login_required
 def calls():
     query = request.args.get('destination', '').strip()[:32]
-    statement = select(Call).where(Call.tenant_id == current_user.tenant_id)
+    statement, start, end = filtered_calls()
+    pagination = db.paginate(statement.order_by(Call.started_at.desc(), Call.id.desc()), per_page=50, max_per_page=50, error_out=False)
+    return render_template('calls.html', title='Call history', pagination=pagination, query=query, start=start, end=end)
+
+
+def filtered_calls():
+    today = utcnow().date()
+    try:
+        start = date.fromisoformat(request.args.get('start') or today.replace(day=1).isoformat())
+        end = date.fromisoformat(request.args.get('end') or today.isoformat())
+        if start > end or end >= date.max:
+            raise ValueError()
+    except ValueError:
+        abort(400, description='Choose a valid start and end date.')
+    statement = select(Call).where(Call.tenant_id == current_user.tenant_id,
+        Call.started_at >= datetime.combine(start, time.min, tzinfo=timezone.utc),
+        Call.started_at < datetime.combine(end + timedelta(days=1), time.min, tzinfo=timezone.utc))
+    query = request.args.get('destination', '').strip()[:32]
     if query:
         statement = statement.where(Call.destination.contains(query, autoescape=True))
-    pagination = db.paginate(statement.order_by(Call.started_at.desc(), Call.id.desc()), per_page=50, max_per_page=50, error_out=False)
-    return render_template('calls.html', title='Call history', pagination=pagination, query=query)
+    return statement, start, end
+
+
+@portal.get('/calls/export.xlsx')
+@login_required
+def export_calls():
+    from .exports import cdr_workbook
+    statement, start, end = filtered_calls()
+    rows = db.session.execute(statement.add_columns(SipAccount.label).join(SipAccount,
+        (SipAccount.id == Call.sip_account_id) & (SipAccount.tenant_id == current_user.tenant_id))
+        .order_by(Call.started_at.desc(), Call.id.desc()).limit(50001)).all()
+    if len(rows) > 50000:
+        flash('This export exceeds 50,000 calls. Choose a smaller date range; no partial file was exported.')
+        return redirect(url_for('portal.calls', start=start, end=end, destination=request.args.get('destination', '')[:32]))
+    return send_file(cdr_workbook(rows, current_user.tenant.name, start, end),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', as_attachment=True,
+        download_name=f'Osumtech - CDR {start} to {end}.xlsx', max_age=0)
 
 
 @portal.route('/trunks', methods=['GET', 'POST'])

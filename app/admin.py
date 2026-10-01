@@ -11,7 +11,7 @@ from werkzeug.security import generate_password_hash
 
 from .billing import activate_did, decimal_amount, locked_tenant, normalise_number, top_up
 from .integrations import preview_calls, settings
-from .models import AuditEvent, Call, Did, Integration, Ledger, SipAccount, Tenant, User, db, utcnow
+from .models import AuditEvent, Call, CdrPartition, CsvReconciliation, Did, Integration, Ledger, SipAccount, Tenant, User, db, utcnow
 
 admin = Blueprint('admin', __name__, url_prefix='/admin')
 
@@ -234,6 +234,7 @@ def integration():
                     config.token_encrypted = Fernet(current_app.config['ENCRYPTION_KEY']).encrypt(token.encode()).decode()
                 config.token_version += 1
                 config.enabled = config.last_test_ok = config.sync_requested = False
+                config.reconciliation_enabled = False
                 config.preview_rows = config.sample_fields = None
                 config.last_test_message = 'Settings saved. Test the connection before enabling sync.'
                 audit('integration.save', 'didlogic', {'token_replaced': bool(token), 'call_id_field': field, 'start_date': str(start)})
@@ -247,7 +248,17 @@ def integration():
                 config.sample_fields, config.preview_rows = fields, rows
                 config.last_test_message = f'Connected. Fetched {len(rows)} real CDRs from the last seven days. No charges posted.'
                 audit('integration.test', 'didlogic', {'records': len(rows)})
+            elif action == 'shadow':
+                if not config.last_test_ok or not config.start_date or not config.currency_confirmed:
+                    raise ValueError('Save a start date, confirm USD and test the connection first.')
+                if not db.session.scalar(select(SipAccount.id).where(SipAccount.active.is_(True))):
+                    raise ValueError('Map at least one SIP account to a client first.')
+                config.enabled = False
+                config.reconciliation_enabled = config.sync_requested = True
+                audit('integration.shadow', 'didlogic', {'start_date': str(config.start_date)})
             elif action == 'enable':
+                if db.session.scalar(select(CdrPartition.id).where(CdrPartition.accepted_at.is_not(None))):
+                    raise ValueError('Reconciled calls have been billed. A reviewed cutover is required before switching to provider-ID billing.')
                 if not config.last_test_ok or not config.start_date or not config.currency_confirmed or not config.call_id_field:
                     raise ValueError('Save a start date, confirm USD costs, choose the stable ID field and test the connection first.')
                 ids = [row.get('call_id') for row in config.preview_rows or []]
@@ -258,12 +269,14 @@ def integration():
                 if not db.session.scalar(select(SipAccount.id).where(SipAccount.active.is_(True))):
                     raise ValueError('Map at least one real SIP account to a client first.')
                 config.enabled, config.sync_requested = True, True
+                config.reconciliation_enabled = False
                 audit('integration.enable', 'didlogic', {'start_date': str(config.start_date), 'call_id_field': config.call_id_field})
             elif action == 'disable':
                 config.enabled = config.sync_requested = False
+                config.reconciliation_enabled = False
                 audit('integration.disable', 'didlogic')
             elif action == 'sync':
-                if not config.enabled:
+                if not config.enabled and not config.reconciliation_enabled:
                     raise ValueError('Enable synchronisation first.')
                 config.sync_requested = True
                 audit('integration.request_sync', 'didlogic')
@@ -277,9 +290,29 @@ def integration():
             error = 'Settings changed in another session. Reload and try again.' if isinstance(exc, IntegrityError) else str(exc)
             if request.form.get('action') == 'test' and config:
                 config.last_test_at, config.last_test_ok, config.enabled = utcnow(), False, False
+                config.reconciliation_enabled = False
                 config.last_test_message, config.preview_rows = error[:300], None
                 db.session.commit()
     return render_template('admin/integrations.html', title='DID Logic integration', integration=config, error=error), (400 if error else 200)
+
+
+@admin.route('/reconciliation', methods=['GET', 'POST'])
+def reconciliation():
+    from .reconciliation import approve
+    error = None
+    if request.method == 'POST':
+        try:
+            if request.form.get('reviewed') != 'on':
+                raise ValueError('Confirm that you reviewed the provider totals and client pricing.')
+            count = approve(request.form.get('partition_id', type=int), request.form.get('digest', ''), current_user.id)
+            flash(f'Accepted snapshot. {count} new calls charged. Repeated acceptance does not charge again.')
+            return redirect(url_for('admin.reconciliation'))
+        except (ValueError, IntegrityError) as exc:
+            db.session.rollback()
+            error = str(exc) if isinstance(exc, ValueError) else 'Concurrent update detected. Refresh and try again.'
+    pagination = db.paginate(select(CdrPartition).order_by(CdrPartition.day.desc(), CdrPartition.id.desc()),
+                             per_page=20, error_out=False)
+    return render_template('admin/reconciliation.html', title='CDR reconciliation', pagination=pagination, error=error), (400 if error else 200)
 
 
 @admin.get('/calls')
@@ -292,3 +325,57 @@ def calls():
     tenants = db.session.scalars(select(Tenant).order_by(Tenant.name)).all()
     return render_template('admin/calls.html', title='Wholesale & retail', pagination=pagination,
                            tenants=tenants, tenant_names={t.id: t.name for t in tenants}, selected_tenant=tenant_id)
+
+
+@admin.route('/reconciliation/<int:partition_id>/csv', methods=['GET', 'POST'])
+def reconcile_csv(partition_id):
+    from .csv_reconciliation import compare_csv, MAX_BYTES
+    partition = db.get_or_404(CdrPartition, partition_id)
+    error = None
+    if request.method == 'POST':
+        try:
+            if request.form.get('complete_export') != 'on':
+                raise ValueError('Confirm this export covers the complete selected UTC day and SIP account.')
+            upload = request.files.get('csv_file')
+            if not upload:
+                raise ValueError('Choose a provider CSV file.')
+            offset = request.form.get('offset_minutes', type=int)
+            if offset is None:
+                raise ValueError('Choose the UTC offset used by the export.')
+            partition = db.session.execute(select(CdrPartition).where(CdrPartition.id == partition_id)
+                .with_for_update().execution_options(populate_existing=True)).scalar_one()
+            report = compare_csv(upload.read(MAX_BYTES + 1), partition, offset)
+            result = CsvReconciliation(partition_id=partition.id, actor_id=current_user.id, report=report)
+            db.session.add(result)
+            db.session.flush()
+            audit('reconciliation.csv', str(result.id), {'partition_id': partition.id,
+                  'matched': report['matched'], 'file_sha256': report['file_sha256'], 'snapshot_digest': partition.digest})
+            db.session.commit()
+            return redirect(url_for('admin.reconcile_csv', partition_id=partition.id, report_id=result.id))
+        except ValueError as exc:
+            db.session.rollback()
+            error = str(exc)
+    report_id = request.args.get('report_id', type=int)
+    query = select(CsvReconciliation).where(CsvReconciliation.partition_id == partition.id)
+    if report_id:
+        query = query.where(CsvReconciliation.id == report_id)
+    result = db.session.scalar(query.order_by(CsvReconciliation.id.desc()).limit(1))
+    return render_template('admin/csv_reconciliation.html', title='Compare provider CSV', partition=partition,
+                           result=result, error=error), (400 if error else 200)
+
+
+@admin.get('/reconciliation/csv/<int:report_id>/download')
+def reconciliation_csv_download(report_id):
+    import csv
+    from io import StringIO, BytesIO
+    from flask import send_file
+    result = db.get_or_404(CsvReconciliation, report_id)
+    output = StringIO(newline='')
+    writer = csv.writer(output)
+    writer.writerow(['Source', 'Time UTC', 'Caller', 'Destination', 'Seconds', 'Wholesale USD per call', 'Occurrences'])
+    for row in result.report['differences']:
+        values = [row[k] for k in ('source', 'time', 'caller', 'destination', 'seconds', 'cost', 'occurrences')]
+        # Spreadsheet applications must not interpret provider text as formulas.
+        writer.writerow(["'" + str(v) if str(v).lstrip().startswith(('=', '+', '-', '@')) else v for v in values])
+    return send_file(BytesIO(output.getvalue().encode('utf-8-sig')), mimetype='text/csv', as_attachment=True,
+                     download_name=f'Osumtech - Reconciliation {result.id}.csv', max_age=0)

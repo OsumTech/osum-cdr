@@ -4,7 +4,7 @@ from flask import current_app
 
 from .models import db
 
-VERSION = 3
+VERSION = 4
 
 
 def upgrade_schema():
@@ -48,12 +48,14 @@ def upgrade_schema():
                                 'fallback': current_app.config['FALLBACK_RATE']})
         if 'tenant' in tables and 'vendor_cost_pricing' not in {c['name'] for c in inspect(connection).get_columns('tenant')}:
             connection.execute(text('ALTER TABLE tenant ADD COLUMN vendor_cost_pricing BOOLEAN NOT NULL DEFAULT FALSE'))
+        if 'integration' in tables and 'reconciliation_enabled' not in {c['name'] for c in inspect(connection).get_columns('integration')}:
+            connection.execute(text('ALTER TABLE integration ADD COLUMN reconciliation_enabled BOOLEAN NOT NULL DEFAULT FALSE'))
         db.metadata.create_all(connection)
         if postgres:
             connection.execute(text('''CREATE OR REPLACE FUNCTION protect_billing_history() RETURNS trigger AS $$
                 BEGIN RAISE EXCEPTION 'Billing history is append-only'; END;
                 $$ LANGUAGE plpgsql'''))
-            for table in ('ledger', 'call', 'invoice', 'audit_event'):
+            for table in ('ledger', 'call', 'invoice', 'audit_event', 'csv_reconciliation'):
                 connection.execute(text(f'DROP TRIGGER IF EXISTS immutable_history ON "{table}"'))
                 connection.execute(text(f'CREATE TRIGGER immutable_history BEFORE UPDATE OR DELETE ON "{table}" FOR EACH ROW EXECUTE FUNCTION protect_billing_history()'))
         connection.execute(text('DELETE FROM schema_version WHERE id = 1'))

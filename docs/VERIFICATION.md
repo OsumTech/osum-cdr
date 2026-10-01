@@ -11,6 +11,13 @@ Verified locally before publishing:
   from production; provider interactions in tests use explicit mocks.
 - PDF text extraction confirms invoice number, customer and exact ledger total.
 - Docker image build and Compose configuration validation.
+- Reconciliation tests cover complete pagination, identical occurrences, reordered
+  records, correction holds, failed refreshes, atomic day acceptance, provider-ID
+  cutover protection and administrator-only access. No live provider guarantees
+  are inferred from mocked tests.
+- Excel exports are read independently with openpyxl to verify dates, numeric
+  amounts, literal strings, frozen headers and filters. Tests check tenant isolation,
+  date/destination filters and exclusion of wholesale fields.
 
 Live provider CDRs, VPS networking, Let's Encrypt issuance and provider-side call
 suspension have not been tested. Live CDR imports start disabled until the admin

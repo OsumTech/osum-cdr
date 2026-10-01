@@ -8,7 +8,7 @@ from app.schema import upgrade_schema
 def test_fresh_schema_upgrade_is_idempotent(app):
     upgrade_schema()
     upgrade_schema()
-    assert db.session.get(SchemaVersion, 1).version == 3
+    assert db.session.get(SchemaVersion, 1).version == 4
     assert db.session.get(Tenant, 1).name == 'Test Company A'
 
 
@@ -19,6 +19,19 @@ def test_v2_upgrade_defaults_to_existing_retail_pricing(app):
     upgrade_schema()
     upgrade_schema()
     assert db.session.get(Tenant, 1).vendor_cost_pricing is False
+
+
+def test_v3_upgrade_adds_paused_reconciliation(app):
+    from app.models import Integration
+    db.session.add(Integration(id=1, enabled=False))
+    db.session.commit()
+    db.session.remove()
+    with db.engine.begin() as connection:
+        connection.execute(text('ALTER TABLE integration DROP COLUMN reconciliation_enabled'))
+        connection.execute(text('DROP TABLE csv_reconciliation'))
+        connection.execute(text('DROP TABLE cdr_partition'))
+    upgrade_schema()
+    assert db.session.get(Integration, 1).reconciliation_enabled is False
 
 
 def test_v1_upgrade_preserves_existing_customer_and_rates(app):

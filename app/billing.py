@@ -86,7 +86,7 @@ def top_up(tenant_id, amount, reference, actor_id=None):
         raise
 
 
-def bill_call(account_id, vendor_call_id, started_at, destination, duration, wholesale_rate=None, wholesale_cost=None):
+def bill_call(account_id, vendor_call_id, started_at, destination, duration, wholesale_rate=None, wholesale_cost=None, *, commit=True):
     if duration == 0:
         return False
     if not vendor_call_id or len(str(vendor_call_id)) > 200:
@@ -105,7 +105,8 @@ def bill_call(account_id, vendor_call_id, started_at, destination, duration, who
                     or existing.duration != duration
                     or existing.started_at.replace(tzinfo=timezone.utc) != started_at.astimezone(timezone.utc)):
                 raise ValueError('Provider call ID conflicts with a previously billed call.')
-            db.session.rollback()
+            if commit:
+                db.session.rollback()
             return False
         wholesale_rate = decimal_amount(wholesale_rate) if wholesale_rate is not None else None
         wholesale_cost = decimal_amount(wholesale_cost) if wholesale_cost is not None else None
@@ -129,7 +130,10 @@ def bill_call(account_id, vendor_call_id, started_at, destination, duration, who
         description = (f'Call to +{number} · vendor cost' if tenant.vendor_cost_pricing
                        else f'Call to +{number} · {seconds}s billed')
         post_entry(tenant, f'call:{vendor_call_id}', 'usage', description, -cost)
-        db.session.commit()
+        if commit:
+            db.session.commit()
+        else:
+            db.session.flush()
         return True
     except Exception:
         db.session.rollback()

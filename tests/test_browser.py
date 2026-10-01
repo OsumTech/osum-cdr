@@ -7,6 +7,76 @@ import pytest
 from werkzeug.serving import make_server
 
 
+@pytest.mark.skipif(os.getenv('BROWSER_TESTS') != '1', reason='Set BROWSER_TESTS=1 for CSV workflow QA')
+def test_csv_review_accept_and_customer_excel(app):
+    from datetime import date, timedelta
+    from io import BytesIO
+    from openpyxl import load_workbook
+    from playwright.sync_api import sync_playwright
+    from sqlalchemy import select
+    from werkzeug.security import generate_password_hash
+    from app.models import CdrPartition, Integration, SipAccount, User, db, utcnow
+    from app.reconciliation import canonical_rows, save_snapshot
+    db.session.add(User(email='csv-browser@example.test', is_admin=True, password_hash=generate_password_hash('csv-browser-password')))
+    db.session.add(Integration(id=1, reconciliation_enabled=True, currency_confirmed=True, token_version=1))
+    db.session.commit()
+    account = db.session.get(SipAccount, 1)
+    groups = canonical_rows([{'type': 'sip', 'sip_account': 'provider-1', 'timestamp': '2025-01-01T12:00:00Z',
+                             'from': '441234567890', 'to': '447700900123', 'duration': 30, 'amount': '0.008'}], account, date(2025, 1, 1))
+    save_snapshot(account, date(2025, 1, 1), groups, 1)
+    part = db.session.scalar(select(CdrPartition))
+    part.checked_at = utcnow() - timedelta(minutes=6)
+    db.session.commit()
+    save_snapshot(account, date(2025, 1, 1), groups, 1)
+    server = make_server('127.0.0.1', 0, app, threaded=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    results = Path('test-results')
+    results.mkdir(exist_ok=True)
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(channel='chrome', headless=True)
+            page = browser.new_page(viewport={'width': 1440, 'height': 1000})
+            base = f'http://localhost:{server.server_port}'
+            page.goto(base + '/login')
+            page.get_by_label('Email address').fill('csv-browser@example.test')
+            page.get_by_label('Password', exact=True).fill('csv-browser-password')
+            page.get_by_role('button', name='Sign in').click()
+            page.goto(base + '/admin/reconciliation')
+            page.get_by_role('link', name='Compare manual provider CSV').click()
+            csv_data = b'Date,Time,SIP ID,Type,From,To,Duration,Charge\n01/01/25,12:00:00 pm,provider-1,SIP TERM,441234567890,447700900123,30,0.008\n'
+            page.get_by_label('Provider CSV').set_input_files({'name': 'test-provider.csv', 'mimeType': 'text/csv', 'buffer': csv_data})
+            page.get_by_label('Export timezone').select_option('0')
+            page.get_by_label('This export contains').check()
+            page.get_by_role('button', name='Compare CSV').click()
+            page.get_by_role('heading', name='Matched', exact=True).wait_for()
+            for width in (1440, 768, 390, 320):
+                page.set_viewport_size({'width': width, 'height': 1000})
+                assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+                page.screenshot(path=str(results / f'csv-comparison-{width}.png'), full_page=True)
+            page.set_viewport_size({'width': 1440, 'height': 1000})
+            page.goto(base + '/admin/reconciliation')
+            page.get_by_label("I verified this day's").check()
+            page.get_by_role('button', name='Accept day').click()
+            page.get_by_text('Accepted snapshot. 1 new calls charged.', exact=False).wait_for()
+            page.get_by_role('button', name='Sign out').click()
+            page.get_by_label('Email address').fill('a@example.test')
+            page.get_by_label('Password', exact=True).fill('test-password-123')
+            page.get_by_role('button', name='Sign in').click()
+            page.goto(base + '/calls?start=2025-01-01&end=2025-01-01')
+            page.screenshot(path=str(results / 'customer-export.png'), full_page=True)
+            with page.expect_download() as download_info:
+                page.get_by_role('button', name='Export Excel').click()
+            download = download_info.value
+            book = load_workbook(BytesIO(Path(download.path()).read_bytes()))
+            assert book.active['C6'].value == '+447700900123'
+            assert book.active['F6'].value == 0.014
+            browser.close()
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+
 @pytest.mark.skipif(os.getenv('BROWSER_TESTS') != '1', reason='Set BROWSER_TESTS=1 to run local Chrome QA')
 def test_responsive_portal_and_login(app):
     from playwright.sync_api import sync_playwright
@@ -75,7 +145,7 @@ def test_admin_responsive_onboarding(app, monkeypatch):
             page.get_by_role('heading', name='Admin overview').wait_for()
             for width in (1440, 768, 390, 320):
                 page.set_viewport_size({'width': width, 'height': 1000})
-                for path in ('/admin/', '/admin/clients', '/admin/clients/new', '/admin/clients/1', '/admin/integrations', '/admin/calls'):
+                for path in ('/admin/', '/admin/clients', '/admin/clients/new', '/admin/clients/1', '/admin/integrations', '/admin/calls', '/admin/reconciliation'):
                     response = page.goto(f'http://localhost:{server.server_port}{path}')
                     assert response.status == 200
                     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), (width, path)

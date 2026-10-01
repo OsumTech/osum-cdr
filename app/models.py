@@ -155,6 +155,7 @@ class Integration(db.Model):
     sample_fields = db.Column(db.JSON)
     preview_rows = db.Column(db.JSON)
     sync_requested = db.Column(db.Boolean, nullable=False, default=False)
+    reconciliation_enabled = db.Column(db.Boolean, nullable=False, default=False)
     __table_args__ = (db.CheckConstraint('id = 1'),)
 
 
@@ -170,3 +171,32 @@ class AuditEvent(db.Model):
 class SchemaVersion(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     version = db.Column(db.Integer, nullable=False)
+
+
+class CdrPartition(db.Model):
+    """Complete provider-day snapshots; shadow data never enters customer views."""
+    id = db.Column(db.Integer, primary_key=True)
+    sip_account_id = db.Column(db.Integer, db.ForeignKey('sip_account.id'), nullable=False)
+    day = db.Column(db.Date, nullable=False)
+    rows = db.Column(db.JSON, nullable=False, default=dict)
+    accepted_rows = db.Column(db.JSON, nullable=False, default=dict)
+    digest = db.Column(db.String(64), nullable=False)
+    token_version = db.Column(db.Integer, nullable=False)
+    observations = db.Column(db.Integer, nullable=False, default=1)
+    first_seen = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+    checked_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+    accepted_at = db.Column(db.DateTime(timezone=True))
+    status = db.Column(db.String(30), nullable=False, default='observing')
+    record_count = db.Column(db.Integer, nullable=False)
+    wholesale_total = db.Column(db.Numeric(18, 6), nullable=False)
+    account = db.relationship(SipAccount)
+    __table_args__ = (db.UniqueConstraint('sip_account_id', 'day'),)
+
+
+class CsvReconciliation(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    partition_id = db.Column(db.Integer, db.ForeignKey('cdr_partition.id'), nullable=False)
+    actor_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    report = db.Column(db.JSON, nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+    partition = db.relationship(CdrPartition)

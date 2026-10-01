@@ -52,6 +52,9 @@ def sync_calls():
 
 def _sync_calls():
     integration = settings()
+    if integration and integration.reconciliation_enabled:
+        from .reconciliation import collect
+        return collect(integration)
     if not integration or not integration.enabled:
         return {'enabled': False, 'imported': 0}
     if not integration.token_encrypted or not integration.call_id_field or not integration.start_date or not integration.last_test_ok or not integration.currency_confirmed:

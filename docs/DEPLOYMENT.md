@@ -30,7 +30,7 @@ docker compose run --rm web flask --app app create-admin
 
 Enter your administrator email and a strong password. No client company,
 customer login, SIP account, number or demonstration record is created.
-`init-db` creates schema version 3; `upgrade-db` safely upgrades earlier releases.
+`init-db` creates schema version 4; `upgrade-db` safely upgrades earlier releases.
 Version 3 adds optional vendor-cost call pricing; existing clients keep their retail pricing.
 If you already created a customer in version 1, use a different email for the
 administrator; the existing customer remains intact.
@@ -102,8 +102,19 @@ There is no unauthenticated public admin-registration page.
 
 ## 6. Enable workers
 
-Read [BILLING.md](BILLING.md). Confirm commercial rates and the provider's unique
-call ID before enabling live sync in the admin dashboard. Legacy token/sync `.env`
+For DID Logic's current API without Call IDs, use **Enable shadow collection**
+in Integrations after saving the start date, confirming USD, testing the token,
+and mapping SIP accounts. Leave the Call ID field blank. The same `sync-cdr`
+cron command below collects snapshots without charging customers. Run it again
+at least five minutes later to compare complete snapshots. Review closed days
+under **Review imported days** and explicitly accept them to post charges.
+No manual CSV download is needed. See [CDR_PLAN_B.md](CDR_PLAN_B.md).
+Customer **Call history → Export Excel** downloads accepted/rated calls for the
+selected UTC date range and destination filter (up to 50,000 rows per download).
+
+Read [BILLING.md](BILLING.md). Confirm commercial rates before accepting shadow
+snapshots. The separate provider-ID billing mode still requires confirmed unique
+call IDs; do not enable that mode for the current DID Logic API. Legacy token/sync `.env`
 variables are no longer read. No API token needs to be entered at installation.
 
 ```sh

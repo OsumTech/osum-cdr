@@ -1,0 +1,19 @@
+{% extends 'base.html' %}{% import 'admin/_forms.html' as forms with context %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">CDR RECONCILIATION</p><h1>Review imported days</h1><p class="muted">Shadow collection never changes client balances. Accepted calls appear in client history and Excel exports.</p></div><a class="button" href="{{ url_for('admin.integration') }}">Integration settings</a></div>
+{% if error %}<div class="notice" role="alert">{{ error }}</div>{% endif %}
+<p class="form-help">A closed UTC day becomes reviewable after two matching complete downloads at least five minutes apart. This detects changes; it does not prove provider completeness. Check counts and wholesale totals against the provider before accepting. Current client prices apply to new charges.</p>
+{% for part in pagination.items %}
+<section class="admin-panel"><h2>{{ part.day }} · {{ part.account.label }}</h2><p class="form-help">{{ part.account.tenant.name }} · SIP {{ part.account.provider_id }} · {{ part.status|replace('_', ' ')|capitalize }} · {{ part.observations }} matching observations<br>Last checked {{ part.checked_at.strftime('%d %b %Y %H:%M') }} UTC</p>
+<p>{{ part.record_count }} answered calls · Wholesale USD {{ part.wholesale_total|precise }}</p>
+<a class="text-link" href="{{ url_for('admin.reconcile_csv', partition_id=part.id) }}">Compare manual provider CSV</a>
+{% set accepted_count = namespace(value=0) %}{% for row in part.accepted_rows.values() %}{% set accepted_count.value = accepted_count.value + row.count %}{% endfor %}
+<p class="form-help">Previously accepted: {{ accepted_count.value }} calls. Zero-duration records are excluded.</p>
+<details class="admin-details"><summary>Inspect call groups (first 100)</summary><div class="table-scroll" tabindex="0" role="region" aria-label="Provider snapshot"><table><thead><tr><th>Time (UTC)</th><th>Destination</th><th class="numeric">Seconds</th><th class="numeric">Occurrences</th><th class="numeric">Cost per call · USD</th></tr></thead><tbody>{% for key, row in part.rows.items() %}{% if loop.index <= 100 %}<tr><td>{{ row.identity[3] }}</td><td>+{{ row.identity[5] }}</td><td class="numeric">{{ row.identity[6] }}</td><td class="numeric">{{ row.count }}</td><td class="numeric">{{ row.cost }}</td></tr>{% endif %}{% endfor %}</tbody></table></div></details>
+{% if part.status == 'review' %}<form method="post">{{ forms.csrf() }}<input type="hidden" name="partition_id" value="{{ part.id }}"><input type="hidden" name="digest" value="{{ part.digest }}"><label class="checkbox"><input type="checkbox" name="reviewed" required>I verified this day's provider totals, reviewed client pricing and accept the additional calls as billable.</label><button class="button primary">Accept day & charge new calls</button></form>
+{% elif part.status == 'correction' %}<p class="notice">Previously accepted records changed or disappeared. Further billing is held. Investigate with the provider and reconcile existing charges before proceeding.</p>
+{% elif part.status == 'fetch_error' %}<p class="notice">The last download failed validation. Existing snapshot retained; acceptance is blocked until collection succeeds again.</p>
+{% endif %}</section>
+{% else %}<div class="empty-state"><h2>No snapshots collected yet.</h2><p>Enable shadow collection in Integrations and run the scheduled sync worker.</p></div>{% endfor %}
+{% if pagination.pages > 1 %}<nav class="pagination" aria-label="Pagination">{% if pagination.has_prev %}<a class="button" href="{{ url_for('admin.reconciliation', page=pagination.prev_num) }}">Previous</a>{% endif %}<span>Page {{ pagination.page }} of {{ pagination.pages }}</span>{% if pagination.has_next %}<a class="button" href="{{ url_for('admin.reconciliation', page=pagination.next_num) }}">Next</a>{% endif %}</nav>{% endif %}
+{% endblock %}

@@ -42,3 +42,4 @@ build/
 deploy/nginx-active/
 pytest-cache-files-*/
 test-results/
+/calls.csv
