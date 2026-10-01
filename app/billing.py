@@ -5,9 +5,9 @@ from datetime import date, datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 
 from flask import current_app
-from sqlalchemy import select
+from sqlalchemy import select, text
 
-from .models import AuditEvent, Call, Did, Invoice, Ledger, SipAccount, Tenant, db, utcnow
+from .models import AuditEvent, Call, Did, Invoice, Ledger, SipAccount, Tenant, WebhookBilling, db, utcnow
 
 PRECISION = Decimal('0.000001')
 
@@ -86,7 +86,20 @@ def top_up(tenant_id, amount, reference, actor_id=None):
         raise
 
 
+def billing_mode_lock(exclusive=False):
+    if db.engine.dialect.name == 'postgresql':
+        name = 'pg_advisory_xact_lock' if exclusive else 'pg_advisory_xact_lock_shared'
+        db.session.execute(text(f'SELECT {name}(730023)'))
+
+
+def require_legacy_billing():
+    billing_mode_lock()
+    if db.session.get(WebhookBilling, 1):
+        raise ValueError('Webhook billing is active. Historical/API posting is locked to prevent duplicate charges.')
+
+
 def bill_call(account_id, vendor_call_id, started_at, destination, duration, wholesale_rate=None, wholesale_cost=None, *, commit=True):
+    require_legacy_billing()
     if duration == 0:
         return False
     if not vendor_call_id or len(str(vendor_call_id)) > 200:
@@ -148,6 +161,7 @@ def following_month(day, anchor):
 def bill_inbound(did_id, call_id, started_at, duration, cost, *, commit=True):
     """Inbound usage always passes through the final vendor cost, never retail rates."""
     try:
+        require_legacy_billing()
         if not call_id or len(call_id) > 200 or started_at.tzinfo is None or started_at > utcnow():
             raise ValueError('Invalid inbound call identifier or timestamp.')
         if isinstance(duration, bool) or not isinstance(duration, int) or duration < 0 or cost is None:

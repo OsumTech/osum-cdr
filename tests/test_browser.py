@@ -1,4 +1,4 @@
-﻿"""Opt-in local browser QA. Uses only disposable test accounts and records."""
+"""Opt-in local browser QA. Uses only disposable test accounts and records."""
 import os
 import threading
 from pathlib import Path
@@ -131,7 +131,13 @@ def test_responsive_portal_and_login(app):
 def test_admin_responsive_onboarding(app, monkeypatch):
     from playwright.sync_api import sync_playwright
     from werkzeug.security import generate_password_hash
-    from app.models import User, db
+    from app.models import User, WebhookEvent, db
+    for i in range(12):
+        db.session.add(WebhookEvent(call_id=f'long-provider-call-identifier-{i}@192.0.2.1:5060', direction='outbound',
+            fingerprint='a' * 64, tenant_id=1, status='mapped', payload={
+                'calldate': '2025-01-01T12:00:00+00:00', 'src': '447700900123', 'dst': '441670641217',
+                'disposition': 'ANSWERED', 'billsec': 57, 'duration': 68,
+                'billing': {'state': 'charged', 'cost': '0.015200', 'rate': '0.016000', 'seconds': 57}}))
     db.session.add(User(email='owner@example.test', password_hash=generate_password_hash('owner-test-password'), is_admin=True))
     db.session.commit()
     monkeypatch.setattr('app.admin.preview_calls', lambda config: (['id', 'duration'], []))
@@ -173,7 +179,17 @@ def test_admin_responsive_onboarding(app, monkeypatch):
             assert page.get_by_text('Connected. Fetched 0 real CDRs', exact=False).count() >= 1
             page.screenshot(path=str(results / 'admin-integration.png'), full_page=True)
             page.goto(f'http://localhost:{server.server_port}/admin/webhooks')
+            assert page.locator('.live-call-table tbody tr').count() == 10
+            page.get_by_label('Rows per page').select_option('25')
+            page.get_by_role('button', name='Filter calls', exact=True).click()
+            assert page.locator('.live-call-table tbody tr').count() == 12
+            page.locator('.live-call-scroll').scroll_into_view_if_needed()
             page.screenshot(path=str(results / 'live-calls-desktop.png'), full_page=True)
+            page.set_viewport_size({'width': 390, 'height': 844})
+            page.locator('.live-call-scroll').scroll_into_view_if_needed()
+            assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
+            page.screenshot(path=str(results / 'live-calls-mobile.png'), full_page=True)
+            page.set_viewport_size({'width': 1440, 'height': 1000})
             page.get_by_role('button', name='Create shadow receiver').click()
             assert page.get_by_label('Private CDR webhook URL').input_value().startswith('https://')
             page.get_by_role('heading', name='Receiver enabled', exact=True).wait_for()
@@ -184,4 +200,3 @@ def test_admin_responsive_onboarding(app, monkeypatch):
     finally:
         server.shutdown()
         thread.join(timeout=5)
-

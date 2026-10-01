@@ -4,7 +4,7 @@ from flask import current_app
 
 from .models import db
 
-VERSION = 5
+VERSION = 6
 
 
 def upgrade_schema():

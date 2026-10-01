@@ -8,7 +8,7 @@ from app.schema import upgrade_schema
 def test_fresh_schema_upgrade_is_idempotent(app):
     upgrade_schema()
     upgrade_schema()
-    assert db.session.get(SchemaVersion, 1).version == 5
+    assert db.session.get(SchemaVersion, 1).version == 6
     assert db.session.get(Tenant, 1).name == 'Test Company A'
 
 
@@ -87,3 +87,16 @@ def test_v1_upgrade_preserves_existing_customer_and_rates(app):
     assert user.tenant_id == 1 and not user.is_admin
     call = db.session.get(Call, 1)
     assert call.vendor_call_id == 'legacy-id' and call.wholesale_cost is None
+
+
+def test_v5_upgrade_keeps_receiver_and_starts_without_billing(app):
+    from app.models import WebhookBilling, WebhookSettings
+    db.session.add(WebhookSettings(id=1, enabled=True, secret_hash='a' * 64, secret_encrypted='test-only'))
+    db.session.commit()
+    db.session.remove()
+    with db.engine.begin() as connection:
+        connection.execute(text('DROP TABLE webhook_billing'))
+    upgrade_schema()
+    upgrade_schema()
+    assert db.session.get(WebhookBilling, 1) is None
+    assert db.session.get(WebhookSettings, 1).enabled is True

@@ -94,3 +94,92 @@ def test_admin_inbox_remapping_rotation_customer_denied(receiver, client):
     client.post('/login', data={'email': 'a@example.test', 'password': 'test-password-123'})
     assert client.get('/admin/webhooks').status_code == 403
     assert client.post('/admin/webhooks', data={'action': 'rotate'}).status_code == 403
+
+
+def test_live_billing_atomic_duplicate_and_cutover(receiver, client):
+    from datetime import datetime, timedelta, timezone
+    from decimal import Decimal
+    from app.models import WebhookBilling
+    now = datetime.now(timezone.utc)
+    db.session.add(WebhookBilling(id=1, started_at=now - timedelta(minutes=2)))
+    tenant = db.session.get(Tenant, 1)
+    tenant.landline_rate = Decimal('0.016')
+    tenant.billing_increment = 60
+    db.session.commit()
+    body = event(calldate=(now - timedelta(minutes=1)).isoformat(), dst='441670641217', billsec=57, duration=68)
+    with patch('app.webhooks.db.session.commit', side_effect=RuntimeError('test failure')):
+        assert client.post(PATH, json=body).status_code == 503
+    assert db.session.scalar(select(func.count(Call.id))) == 0
+    assert db.session.get(Tenant, 1).balance == 0
+    assert client.post(PATH, json=body).json['mode'] == 'charged'
+    assert client.post(PATH, json=body).json['mode'] == 'charged'
+    assert db.session.scalar(select(func.count(Call.id))) == 1
+    assert db.session.scalar(select(func.count(Ledger.id))) == 1
+    call = db.session.scalar(select(Call))
+    assert call.cost == Decimal('0.016000') and call.billed_seconds == 60
+    assert call.wholesale_cost is None and call.tenant_id == 1
+    assert db.session.get(Tenant, 1).balance == Decimal('-0.016000')
+    assert client.post(PATH, json={**body, 'billsec': 56}).json['status'] == 'conflict'
+    assert db.session.get(Tenant, 1).balance == Decimal('-0.016000')
+    assert client.post(PATH, json=event(callid='historical')).json['mode'] == 'shadow'
+    assert db.session.scalar(select(func.count(Call.id))) == 1
+
+
+def test_pending_vendor_inbound_missing_rate_and_zero(receiver, client):
+    from datetime import datetime, timedelta, timezone
+    from app.models import WebhookBilling
+    now = datetime.now(timezone.utc)
+    db.session.add(WebhookBilling(id=1, started_at=now - timedelta(minutes=2)))
+    db.session.commit()
+    body = event(calldate=(now - timedelta(minutes=1)).isoformat())
+    assert client.post(PATH, json={**body, 'callid': 'incoming', 'direction': 'inbound', 'dst': '442071234567'}).json['mode'] == 'pending'
+    assert client.post(PATH, json={**body, 'callid': 'zero', 'billsec': 0}).json['mode'] == 'no_charge'
+    assert client.post(PATH, json={**body, 'callid': 'no-rate', 'dst': '15551234567'}).json['mode'] == 'pending'
+    db.session.get(Tenant, 1).vendor_cost_pricing = True
+    db.session.commit()
+    assert client.post(PATH, json={**body, 'callid': 'vendor'}).json['mode'] == 'pending'
+    assert db.session.scalar(select(func.count(Ledger.id))) == 0
+
+
+def test_activation_and_page_sizes(receiver, client):
+    from app.models import WebhookBilling
+    from app.billing import bill_call
+    from datetime import datetime, timezone
+    db.session.add(User(email='billing-admin@example.test', is_admin=True, password_hash=generate_password_hash('test-password-123')))
+    db.session.commit()
+    for i in range(12):
+        assert client.post(PATH, json=event(callid=f'page-call-{i}')).status_code == 200
+    client.post('/login', data={'email': 'billing-admin@example.test', 'password': 'test-password-123'})
+    html = client.get('/admin/webhooks').data
+    assert html.count(b'class="call-identifier"') == 10
+    assert client.get('/admin/webhooks?per_page=25').data.count(b'class="call-identifier"') == 12
+    assert client.get('/admin/webhooks?per_page=11').status_code == 400
+    assert client.post('/admin/webhooks', data={'action': 'activate_billing'}).status_code == 302
+    activation = db.session.get(WebhookBilling, 1).started_at
+    assert client.post('/admin/webhooks', data={'action': 'activate_billing'}).status_code == 302
+    assert db.session.get(WebhookBilling, 1).started_at == activation
+    assert db.session.scalar(select(func.count(Ledger.id))) == 0
+    with pytest.raises(ValueError, match='Historical/API'):
+        bill_call(1, 'legacy-call', datetime.now(timezone.utc), '441670641217', 20)
+    db.session.rollback()
+
+
+def test_concurrent_webhook_delivery_charges_once(receiver, app):
+    from concurrent.futures import ThreadPoolExecutor
+    from datetime import datetime, timedelta, timezone
+    from app.models import WebhookBilling
+    if db.engine.dialect.name != 'postgresql':
+        pytest.skip('Concurrent billing requires production PostgreSQL locks')
+    now = datetime.now(timezone.utc)
+    db.session.add(WebhookBilling(id=1, started_at=now - timedelta(minutes=2)))
+    db.session.commit()
+    body = event(calldate=(now - timedelta(minutes=1)).isoformat())
+    def deliver(_):
+        with app.test_client() as browser:
+            return browser.post(PATH, json=body).status_code
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        assert list(pool.map(deliver, range(8))) == [200] * 8
+    db.session.expire_all()
+    assert db.session.scalar(select(func.count(Call.id))) == 1
+    assert db.session.scalar(select(func.count(Ledger.id))) == 1
+    assert db.session.scalar(select(WebhookEvent)).deliveries == 8

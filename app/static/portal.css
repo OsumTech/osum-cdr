@@ -19,3 +19,6 @@
 .sidebar nav a[aria-current=page]{box-shadow:none}
 @media screen and (min-width:761px){.app-layout{height:100vh;height:100dvh;min-height:0;overflow:hidden}.sidebar{min-height:0;overflow-y:auto}.sidebar>*{flex-shrink:0}.workspace{min-height:0;overflow:hidden}.topbar,.workspace-footer{flex-shrink:0}.main-content{min-height:0;overflow-y:auto;scrollbar-gutter:stable}}
 @media print{body{background:white;color:#141210}.sidebar,.topbar,.workspace-footer,.button,.filter-form,.pagination{display:none}.app-layout{display:block}.main-content{padding:0}.records{border:0}.table-scroll{overflow:visible}thead{display:table-header-group}tr{break-inside:avoid}}
+
+/* Keep long identifiers out of the scan view and scrolling near the calls. */
+.live-call-scroll{max-height:60vh;overflow:auto;overscroll-behavior:contain}.live-call-table{table-layout:fixed;min-width:760px;width:100%}.live-call-table th{position:sticky;top:0;background:var(--osum-soft);z-index:1}.live-call-table td{white-space:normal;overflow-wrap:anywhere;vertical-align:top}.live-call-table summary{cursor:pointer;min-height:44px}.call-identifier{font-family:monospace;font-size:12px;word-break:break-all}.live-call-table details p{margin-top:8px;font-size:13px}

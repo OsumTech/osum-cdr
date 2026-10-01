@@ -236,6 +236,12 @@ class WebhookSettings(db.Model):
     __table_args__ = (db.CheckConstraint('id = 1'),)
 
 
+class WebhookBilling(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    started_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    __table_args__ = (db.CheckConstraint('id = 1'),)
+
+
 class WebhookEvent(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     call_id = db.Column(db.String(200), nullable=False)

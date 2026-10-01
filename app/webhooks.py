@@ -1,4 +1,4 @@
-"""Durable shadow inbox. No webhook code writes calls, balances or the ledger."""
+"""Durable inbox with opt-in, atomic custom-rate outbound billing."""
 import hashlib
 import hmac
 import json
@@ -8,8 +8,8 @@ from flask import Blueprint, current_app, request
 from werkzeug.exceptions import RequestEntityTooLarge
 from sqlalchemy import select, text
 
-from .billing import normalise_number
-from .models import Did, WebhookEvent, WebhookSettings, db, utcnow
+from .billing import billing_mode_lock, locked_tenant, normalise_number, post_entry, rate_call
+from .models import Call, Did, WebhookBilling, WebhookEvent, WebhookSettings, db, utcnow
 
 webhooks = Blueprint('webhooks', __name__)
 
@@ -46,7 +46,41 @@ def mapping(payload):
     return db.session.scalar(select(Did).where(Did.number == number, Did.active.is_(True)))
 
 
+def charge_event(event):
+    """Runs only on first receipt, in the same transaction as the inbox write."""
+    activation = db.session.get(WebhookBilling, 1)
+    payload = event.payload
+    started = datetime.fromisoformat(payload['calldate'])
+    result = {'state': 'shadow', 'reason': 'Before billing activation'}
+    if activation and started >= activation.started_at.replace(tzinfo=timezone.utc):
+        result = {'state': 'pending', 'reason': 'Assign CLI before receipt; manual review required'}
+        if event.tenant_id:
+            tenant = locked_tenant(event.tenant_id)
+            if not tenant.active:
+                result['reason'] = 'Client is inactive; review required'
+            elif event.direction != 'outbound' or tenant.vendor_cost_pricing:
+                result['reason'] = 'Awaiting actual vendor charge'
+            elif payload['billsec'] == 0:
+                result = {'state': 'no_charge', 'reason': 'No billable seconds'}
+            elif started > utcnow() or payload['disposition'].upper() != 'ANSWERED':
+                result['reason'] = 'Review call timestamp or outcome'
+            else:
+                try:
+                    number, seconds, rate, cost, label = rate_call(payload['dst'], payload['billsec'], tenant)
+                except ValueError as exc:
+                    result['reason'] = str(exc)
+                else:
+                    key = 'webhook:' + hashlib.sha256(('outbound:' + event.call_id).encode()).hexdigest()
+                    db.session.add(Call(tenant_id=tenant.id, did_id=event.did_id, vendor_call_id=key,
+                        started_at=started, destination=number, duration=payload['billsec'],
+                        billed_seconds=seconds, rate=rate, cost=cost, rate_label='Webhook / ' + label))
+                    post_entry(tenant, 'call:' + key, 'usage', f'Call to +{number} / {seconds}s billed', -cost)
+                    result = {'state': 'charged', 'cost': str(cost), 'rate': str(rate), 'seconds': seconds}
+    event.payload = {**payload, 'billing': result}
+
+
 def receive(payload):
+    billing_mode_lock()
     signature = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
     if db.engine.dialect.name == 'postgresql':
         lock = hashlib.sha256((payload['direction'] + ':' + payload['callid']).encode()).hexdigest()
@@ -65,6 +99,7 @@ def receive(payload):
         payload=payload, tenant_id=did.tenant_id if did else None, did_id=did.id if did else None,
         status='mapped' if did else 'unmapped')
     db.session.add(event)
+    charge_event(event)
     db.session.commit()
     return event
 
@@ -72,7 +107,6 @@ def receive(payload):
 @webhooks.post('/webhooks/didlogic/<secret>')
 def didlogic(secret):
     # Authentication is possession of this URL secret, NOT the asserted caller ID.
-    # No external requests or financial operations occur before acknowledging.
     try:
         config = db.session.get(WebhookSettings, 1)
         digest = hashlib.sha256(secret.encode()).hexdigest()
@@ -83,7 +117,7 @@ def didlogic(secret):
         request.max_content_length = 65536
         payload = validate_payload(request.get_json(silent=True))
         event = receive(payload)
-        return {'received': True, 'mode': 'shadow', 'status': event.status}, 200
+        return {'received': True, 'mode': event.payload.get('billing', {}).get('state', 'shadow'), 'status': event.status}, 200
     except RequestEntityTooLarge:
         db.session.rollback()
         return {'error': 'Payload too large'}, 413

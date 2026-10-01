@@ -1,61 +1,51 @@
-# DID Logic webhook shadow test
+# Live webhook calls and outbound billing
 
-Schema 5 adds a durable webhook inbox, not webhook billing. No event handler
-creates a Call or Ledger row, estimates wholesale costs or changes a balance.
-The existing reconciliation flow remains the only way to accept these API calls
-for billing. Do not disable it or count inbox events as additional billed usage.
+Schema 6 adds an explicit billing activation point. Deploy and upgrade the
+schema before opening Live calls. The existing receiver URL stays valid.
 
-## Configure and test
+## Activate
 
-The admin sidebar now opens **Live calls** directly. Filter by client, direction
-or mapping status, review provider call outcomes, and compare call time with
-receipt time. Summary counts cover all stored events; the table follows the
-selected filters. Refresh calls to fetch the latest saved deliveries.
-Receiver configuration and its private URL are collapsed after setup.
-Historical API tools remain under **History & reconciliation**. This navigation
-change does not start or stop existing workers, import history or post charges.
+Open Live calls and select **Activate outbound billing now**. This records the
+current UTC time once, pauses API collection/billing, and locks historical/API
+financial posting to prevent duplicate charges. Repeating activation does not
+move the start time. Existing calls and balances are preserved.
 
-1. Deploy the image and run `upgrade-db`. Install the current
-   `deploy/nginx-https.conf` into `deploy/nginx-active/default.conf`, run
-   `nginx -t` and reload. The webhook location disables access/error logging of
-   its bearer URL. The image also uses a Gunicorn access logger that omits that
-   route. Any additional reverse proxy must likewise exclude or redact it.
-2. Open Live calls → Receiver configuration and private URL. Create a shadow receiver and copy its
-   private HTTPS URL into DID Logic's CDR webhook setting. Keep the URL secret;
-   never paste it into chat, analytics, monitoring URLs or public logs.
-3. Assign active CLIs/DIDs to the correct client. Outbound mapping uses `src`;
-   inbound mapping uses `dst`. Provider-side enforcement of outbound CLI is an
-   operational prerequisite for trusting that mapping. A caller number is not
-   cryptographic authentication. One number must have one owner.
-4. Complete one real outbound call and one real inbound call. Check the inbox's
-   direction, mapped client, `callid`, billable seconds and total duration against
-   provider records. Unknown numbers are retained as Unmapped and can be checked
-   again after assigning the number. No production demo events are generated.
-5. Confirm balances and the ledger have not changed because of these events.
-   Existing cron jobs may separately charge DID renewals; isolate that in any
-   before/after comparison. Scheduled shadow collection itself posts no money.
+Only new events for calls **starting at or after activation** are eligible.
+Existing inbox entries and calls starting before activation remain uncharged,
+even if delivered again. Configure active CLI ownership before new calls arrive.
 
-Identical repeated deliveries increment the original event's delivery count.
-Changed core fields under the same direction and Call ID flag Conflict and keep
-the original payload. The namespace includes direction because inbound IDs may
-use provider encryption. Independent concurrent deliveries are serialised by
-PostgreSQL advisory locks plus a unique constraint. Acknowledge only after commit.
-Storage failures and a paused receiver return 503 for retry; invalid credentials
-return 404 and malformed events return 400. Requests are capped at 64 KB.
+Answered outbound calls with positive billsec use the mapped client's custom
+landline/mobile/fallback rate and billing increment. The stored call, ledger debit,
+balance and inbox event commit together. Duplicate deliveries charge once;
+changed payloads flag a conflict and preserve the original charge for review.
+Whole-sale cost remains unknown and is excluded from known-margin calculations.
 
-Payload names follow the documented CDR example: `event`, `callid`, `direction`,
-`calldate`, `src`, `dst`, `billsec`, `duration`, `disposition`. Unknown fields are
-not retained. No SIP account is inferred from `user_id`. Non-CDR events must use
-a separate receiver. Only administrator sessions can view/rotate the secret or
-inspect the inbox. Rotation invalidates the old URL immediately.
+Inbound and vendor-cost pricing require actual provider costs and stay Pending.
+Unknown CLI, inactive clients, missing rates and invalid outcomes are held with
+an explanation. Remapping an old event does not debit it. No automatic pending
+reprocessing or historical CSV posting is introduced in this release.
 
-## Before any future real-time financial posting
+## Verify
 
-Observe real provider events, validate enforced CLI coverage and inbound `dst`
-semantics, and test delayed/repeated deliveries. Retain reconciliation for missed
-events and corrections. Define an explicit cutover so historical API imports
-cannot bill calls already charged by webhook. Vendor-cost clients and inbound
-calls need actual provider charges; static rates can only estimate those costs.
-Do not label estimated margins as exact or guarantee second-level delivery.
-These financial changes and a queue-based rating worker are not implemented in
-the shadow receiver.
+Make a real answered outbound call after activation using an assigned CLI.
+Check its Charge / USD and billed seconds against the client's saved rates.
+Confirm the client call history, ledger and balance show that same charge.
+A duplicate delivery must only increment the delivery count. Check an inbound
+call remains Pending awaiting actual vendor charge.
+
+Calls are not blocked or terminated when balances become negative; deductions
+happen after the call ends. Provider-side call control remains separate.
+
+## Inbox and receiver
+
+Rows default to 10; choose 25, 50 or 100. Filters and pagination preserve page
+size. Long IDs, received timestamps and delivery counts are inside Call details.
+The table has a bounded scrolling area and sticky headers.
+
+Receiver configuration contains the private URL and pause/resume controls.
+Keep the URL secret. Nginx and Gunicorn must omit it from access logs, as in the
+provided deployment configuration. A paused receiver or storage failure returns
+503; invalid credentials return 404; malformed events return 400.
+Authentication uses the private URL, not the asserted caller ID. Enforce the
+outbound CLI at the provider. Inbound mapping uses dst, outbound mapping uses src.
+No SIP account is inferred from user_id.

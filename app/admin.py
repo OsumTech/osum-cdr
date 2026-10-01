@@ -9,9 +9,9 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from werkzeug.security import generate_password_hash
 
-from .billing import activate_did, decimal_amount, locked_tenant, normalise_number, top_up
+from .billing import activate_did, billing_mode_lock, decimal_amount, locked_tenant, normalise_number, top_up
 from .integrations import preview_calls, settings
-from .models import AuditEvent, Call, CdrPartition, CsvReconciliation, Did, Integration, Ledger, SipAccount, Tenant, User, WebhookEvent, WebhookSettings, db, utcnow
+from .models import AuditEvent, Call, CdrPartition, CsvReconciliation, Did, Integration, Ledger, SipAccount, Tenant, User, WebhookBilling, WebhookEvent, WebhookSettings, db, utcnow
 
 admin = Blueprint('admin', __name__, url_prefix='/admin')
 
@@ -26,7 +26,18 @@ def webhook_settings():
     if request.method == 'POST':
         try:
             action = request.form.get('action')
-            if action == 'rotate':
+            if action == 'activate_billing':
+                billing_mode_lock(exclusive=True)
+                if not config or not config.enabled:
+                    raise ValueError('Enable the receiver before activating billing.')
+                if not db.session.get(WebhookBilling, 1):
+                    db.session.add(WebhookBilling(id=1, started_at=utcnow()))
+                    integration = db.session.get(Integration, 1)
+                    if integration:
+                        integration.enabled = False
+                        integration.reconciliation_enabled = False
+                    audit('webhook.billing.activate', 'didlogic')
+            elif action == 'rotate':
                 secret = secrets.token_urlsafe(36)
                 if not config:
                     config = WebhookSettings(id=1)
@@ -50,7 +61,7 @@ def webhook_settings():
             else:
                 raise ValueError('Unknown webhook action.')
             db.session.commit()
-            flash('Webhook shadow settings updated. No charges posted.')
+            flash('Webhook settings updated. Existing events were not charged.')
             return redirect(url_for('admin.webhook_settings'))
         except ValueError as exc:
             db.session.rollback()
@@ -62,6 +73,9 @@ def webhook_settings():
     selected_status = request.args.get('status', '')
     selected_direction = request.args.get('direction', '')
     selected_tenant = request.args.get('tenant_id', type=int)
+    per_page = request.args.get('per_page', 10, type=int)
+    if per_page not in (10, 25, 50, 100):
+        abort(400)
     if selected_status not in ('', 'mapped', 'unmapped', 'conflict') or selected_direction not in ('', 'inbound', 'outbound'):
         abort(400)
     query = select(WebhookEvent)
@@ -74,12 +88,13 @@ def webhook_settings():
     counts = dict(db.session.execute(select(WebhookEvent.status, func.count(WebhookEvent.id)).group_by(WebhookEvent.status)).all())
     last_received = db.session.scalar(select(func.max(WebhookEvent.last_received_at)))
     events = db.paginate(query.order_by(WebhookEvent.received_at.desc(), WebhookEvent.id.desc()),
-                         per_page=50, error_out=False)
+                         per_page=per_page, error_out=False)
     names = dict(db.session.execute(select(Tenant.id, Tenant.name)).all())
     return render_template('admin/webhooks.html', title='Live calls', config=config, receiver_url=receiver_url,
                            events=events, tenant_names=names, error=error, counts=counts,
                            last_received=last_received, selected_status=selected_status,
-                           selected_direction=selected_direction, selected_tenant=selected_tenant), (400 if error else 200)
+                           selected_direction=selected_direction, selected_tenant=selected_tenant,
+                           per_page=per_page, billing=db.session.get(WebhookBilling, 1)), (400 if error else 200)
 
 
 @admin.before_request

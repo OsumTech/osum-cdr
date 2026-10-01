@@ -30,7 +30,7 @@ docker compose run --rm web flask --app app create-admin
 
 Enter your administrator email and a strong password. No client company,
 customer login, SIP account, number or demonstration record is created.
-`init-db` creates schema version 5; `upgrade-db` safely upgrades earlier releases.
+`init-db` creates schema version 6; `upgrade-db` safely upgrades earlier releases.
 Version 3 adds optional vendor-cost call pricing; existing clients keep their retail pricing.
 If you already created a customer in version 1, use a different email for the
 administrator; the existing customer remains intact.
@@ -183,8 +183,8 @@ the image.
 
 ## Before live billing
 
-For the optional **webhook shadow test**, see [WEBHOOK_TEST.md](WEBHOOK_TEST.md).
-After deploying schema 5, update the active HTTPS Nginx template before creating
+For **webhook setup and billing activation**, see [WEBHOOK_TEST.md](WEBHOOK_TEST.md).
+After deploying schema 6, update the active HTTPS Nginx template before creating
 the receiver URL, so its private path is excluded from logs:
 
 ```sh
@@ -193,7 +193,8 @@ docker compose exec nginx nginx -t
 docker compose exec nginx nginx -s reload
 ```
 
-Webhooks currently collect test evidence only. They never debit customers.
+Webhooks collect without charging until outbound billing is explicitly activated.
+After activation, new eligible calls debit the client at their saved custom rates.
 
 - Verify login, logout, tenant isolation and PDF downloads over HTTPS.
 - Confirm a real CDR's stable ID, account mapping, timezone and duration.
@@ -202,3 +203,12 @@ Webhooks currently collect test evidence only. They never debit customers.
   overspending during calls.
 - Supply legal invoice details and tax policy before using PDFs as statutory
   invoices. Current PDFs are prepaid usage statements.
+
+## Activate custom-rate webhook billing (schema 6)
+
+Follow the update/backup commands above, including `upgrade-db`. Open **Live
+calls** and click **Activate outbound billing now**. New answered outbound calls
+starting after activation use each mapped client's custom rates. Older events
+are not charged. API posting is locked to avoid duplicate deductions. Inbound
+and vendor-cost clients remain pending actual wholesale charges. See
+[webhook billing behaviour](WEBHOOK_TEST.md) before testing charges.
