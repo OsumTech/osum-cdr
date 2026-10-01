@@ -86,6 +86,31 @@ def top_up(tenant_id, amount, reference, actor_id=None):
         raise
 
 
+def deduct_balance(tenant_id, amount, reference, reason, actor_id):
+    amount = decimal_amount(amount)
+    reference, reason = reference.strip(), reason.strip()
+    if amount <= 0 or not reference or len(reference) > 160 or not reason or len(reason) > 200:
+        raise ValueError('Enter a positive deduction, unique reference and reason (up to 200 characters).')
+    try:
+        tenant = locked_tenant(tenant_id)
+        key = f'adjustment:{tenant_id}:{reference}'
+        description = f'Balance deduction / {reason}'
+        existing = db.session.scalar(select(Ledger).where(Ledger.key == key))
+        if existing:
+            if existing.amount != -amount or existing.description != description:
+                raise ValueError('This deduction reference already exists with different details.')
+            db.session.rollback()
+            return False
+        post_entry(tenant, key, 'adjustment', description, -amount)
+        db.session.add(AuditEvent(actor_id=actor_id, action='client.deduct', target=str(tenant_id),
+            details={'amount': str(amount), 'reference': reference, 'reason': reason}))
+        db.session.commit()
+        return True
+    except Exception:
+        db.session.rollback()
+        raise
+
+
 def billing_mode_lock(exclusive=False):
     if db.engine.dialect.name == 'postgresql':
         name = 'pg_advisory_xact_lock' if exclusive else 'pg_advisory_xact_lock_shared'

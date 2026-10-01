@@ -2,8 +2,8 @@
 {% block content %}
 <div class="page-heading"><div><p class="eyebrow">YOUR ACCOUNT AT A GLANCE</p><h1>Overview</h1><p class="muted">A clear view of your voice services.</p></div><a class="button" href="{{ url_for('portal.billing') }}">View billing <span aria-hidden="true">↗</span></a></div>
 <section class="metrics" aria-label="Account summary">
-  <article class="balance-panel"><p class="metric-label">Available balance <span>USD</span></p><p class="balance-value">${{ current_user.tenant.balance|money }}</p><p class="metric-note">Prepaid account{% if current_user.tenant.balance <= 0 %} · Top-up required{% endif %}</p><a href="{{ url_for('portal.billing') }}">View transactions <span aria-hidden="true">↗</span></a></article>
-  <article class="metric"><p class="metric-label">Call spend this month</p><p class="metric-value">${{ usage|money }}</p><p class="metric-note">USD · based on call date</p></article>
+  <article class="balance-panel"><p class="metric-label">Available balance <span>USD</span></p><p class="balance-value">${{ current_user.tenant.balance|customer_amount }}</p><p class="metric-note">Prepaid account{% if current_user.tenant.balance <= 0 %} · Top-up required{% endif %}</p><a href="{{ url_for('portal.billing') }}">View transactions <span aria-hidden="true">↗</span></a></article>
+  <article class="metric"><p class="metric-label">Call spend this month</p><p class="metric-value">${{ usage|customer_amount }}</p><p class="metric-note">USD · based on call date</p></article>
   <article class="metric"><p class="metric-label">Talk time this month</p><p class="metric-value">{{ (seconds / 60)|round(1) }} <small>min</small></p><p class="metric-note">Answered calls</p></article>
   <article class="metric"><p class="metric-label">Active SIP accounts</p><p class="metric-value">{{ accounts|length }}</p><a href="{{ url_for('portal.trunks') }}">Manage your connections <span aria-hidden="true">↗</span></a></article>
 </section>

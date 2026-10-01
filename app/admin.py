@@ -11,6 +11,7 @@ from werkzeug.security import generate_password_hash
 
 from .billing import activate_did, billing_mode_lock, decimal_amount, locked_tenant, normalise_number, top_up
 from .integrations import preview_calls, settings
+from .billing import deduct_balance
 from .models import CallEstimate, ProviderRate
 from .models import AuditEvent, Call, CdrPartition, CsvReconciliation, Did, Integration, Ledger, SipAccount, Tenant, User, WebhookBilling, WebhookEvent, WebhookSettings, db, utcnow
 
@@ -270,6 +271,9 @@ def client(tenant_id):
                 did.monthly_charge = amount('monthly_charge')
                 did.active = request.form.get('active') == 'on'
                 audit('client.update_did', did.id, {'monthly_charge': str(did.monthly_charge), 'active': did.active})
+            elif action == 'deduct':
+                deduct_balance(tenant_id, amount('deduction_amount'), form_text('deduction_reference'),
+                               form_text('deduction_reason', 200), current_user.id)
             elif action == 'topup':
                 if request.form.get('payment_verified') != 'on':
                     raise ValueError('Confirm that payment was received before adding credit.')

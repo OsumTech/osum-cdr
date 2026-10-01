@@ -231,3 +231,19 @@ wholesale estimate = provider rate * rounded provider seconds / 60, rounded to
 six decimal places. Margin = posted retail cost minus estimated wholesale cost.
 Check the client ledger still shows only its retail charge. Save different
 provider rates and verify the earlier call estimate stays unchanged.
+
+## Client amount display and negative recharges
+
+Client pages and invoice PDFs show four decimal places; Excel charge cells use
+four-decimal display formatting while retaining the underlying numeric values.
+Accounting and admin precision remain unchanged.
+
+In Clients > select client > Payments, use **Deduct balance (negative recharge)**.
+Enter a positive amount, unique reference and reason. This subtracts funds and
+records an audited adjustment. Repeating identical details with the same reference
+has no second effect; changed details with a used reference are rejected. This
+can make a balance negative. It does not send a refund or change historical calls,
+and it is excluded from usage/subscription invoice totals.
+
+Run `upgrade-db` to schema 8 to enable adjustment ledger entries. After deployment, verify the
+client display and record an intended deduction once, then verify the ledger.

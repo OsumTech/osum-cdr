@@ -1,4 +1,4 @@
 <div class="table-scroll" role="region" aria-label="Call records" tabindex="0">
 <table><thead><tr><th scope="col">Date & time <small>UTC</small></th><th scope="col">Destination / receiving DID</th><th scope="col">Rate group</th><th scope="col" class="numeric">Duration</th><th scope="col" class="numeric">Cost (USD)</th></tr></thead><tbody>
-{% for call in calls %}<tr><td>{{ call.started_at.strftime('%d %b %Y · %H:%M') }}</td><td class="number">+{{ call.destination }}</td><td>{{ call.rate_label }}</td><td class="numeric">{{ call.duration }} sec</td><td class="numeric">{{ call.cost|precise }}</td></tr>{% endfor %}
+{% for call in calls %}<tr><td>{{ call.started_at.strftime('%d %b %Y · %H:%M') }}</td><td class="number">+{{ call.destination }}</td><td>{{ call.rate_label }}</td><td class="numeric">{{ call.duration }} sec</td><td class="numeric">{{ call.cost|customer_amount }}</td></tr>{% endfor %}
 </tbody></table></div>

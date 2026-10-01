@@ -62,6 +62,9 @@ def create_app(test_config=None):
     def money(value):
         return f'{value:,.2f}'
 
+    from .formatting import customer_amount
+    app.add_template_filter(customer_amount, 'customer_amount')
+
     @app.template_filter('precise')
     def precise(value):
         return f'{value:,.6f}'

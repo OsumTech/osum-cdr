@@ -128,7 +128,7 @@ class Ledger(db.Model):
     amount = db.Column(db.Numeric(18, 6), nullable=False)
     balance_after = db.Column(db.Numeric(18, 6), nullable=False)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow, index=True)
-    __table_args__ = (db.CheckConstraint("kind IN ('topup', 'usage', 'subscription')"),)
+    __table_args__ = (db.CheckConstraint("kind IN ('topup', 'usage', 'subscription', 'adjustment')", name='ledger_kind'),)
 
 
 class Invoice(db.Model):

@@ -4,7 +4,7 @@ from flask import current_app
 
 from .models import db
 
-VERSION = 7
+VERSION = 8
 
 
 def upgrade_schema():
@@ -70,6 +70,14 @@ def upgrade_schema():
             connection.execute(text('ALTER TABLE cdr_partition ADD COLUMN did_id INTEGER REFERENCES did(id)'))
             connection.execute(text('ALTER TABLE cdr_partition ADD CONSTRAINT partition_did_day UNIQUE (did_id, day)'))
             connection.execute(text('ALTER TABLE cdr_partition ADD CONSTRAINT partition_source CHECK ((sip_account_id IS NOT NULL AND did_id IS NULL) OR (sip_account_id IS NULL AND did_id IS NOT NULL))'))
+        if 'ledger' in tables:
+            for constraint in inspect(connection).get_check_constraints('ledger'):
+                if 'kind' in constraint['sqltext'] and 'adjustment' not in constraint['sqltext']:
+                    if not postgres:
+                        raise RuntimeError('Existing ledger adjustment upgrades require PostgreSQL.')
+                    name = connection.dialect.identifier_preparer.quote(constraint['name'])
+                    connection.execute(text(f'ALTER TABLE ledger DROP CONSTRAINT {name}'))
+                    connection.execute(text("ALTER TABLE ledger ADD CONSTRAINT ledger_kind CHECK (kind IN ('topup', 'usage', 'subscription', 'adjustment'))"))
         db.metadata.create_all(connection)
         if postgres:
             connection.execute(text('''CREATE OR REPLACE FUNCTION protect_billing_history() RETURNS trigger AS $$

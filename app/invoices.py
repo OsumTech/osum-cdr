@@ -1,4 +1,5 @@
 from io import BytesIO
+from .formatting import customer_amount
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -22,9 +23,9 @@ def render_invoice(invoice):
              Paragraph(f'Billing month: {invoice.period} · Issued: {invoice.issued_at:%d %B %Y}', styles['Normal']),
              Paragraph(f'Currency: {invoice.currency}', styles['Normal']), Spacer(1, 10 * mm)]
     rows = [['Description', f'Amount ({invoice.currency})'],
-            ['Call usage posted during billing month', f'{invoice.usage:,.6f}'],
-            ['DID activation, setup & recurring charges', f'{invoice.subscriptions:,.6f}'],
-            ['Total charged to prepaid balance', f'{invoice.total:,.6f}']]
+            ['Call usage posted during billing month', customer_amount(invoice.usage)],
+            ['DID activation, setup & recurring charges', customer_amount(invoice.subscriptions)],
+            ['Total charged to prepaid balance', customer_amount(invoice.total)]]
     table = Table(rows, colWidths=[118 * mm, 52 * mm], repeatRows=1)
     table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#ECE6DA')),
@@ -36,6 +37,6 @@ def render_invoice(invoice):
         ('TOPPADDING', (0, 0), (-1, -1), 12), ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
     ]))
     story.extend([table, Spacer(1, 10 * mm), Paragraph('Prepaid usage statement. These charges have already been posted to your balance; this is not a request for an additional payment.', styles['Normal']),
-                  Spacer(1, 5 * mm), Paragraph('Charges are shown to six decimal places to match the ledger. Late-arriving usage appears in the month it is posted.', styles['Normal'])])
+                  Spacer(1, 5 * mm), Paragraph('Charges are rounded to four decimal places for display. Totals use full accounting precision. Late-arriving usage appears in the month it is posted.', styles['Normal'])])
     document.build(story)
     return output.getvalue()

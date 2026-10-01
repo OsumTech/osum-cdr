@@ -40,7 +40,7 @@ def cdr_workbook(rows, company, start, end):
         '<mergeCell ref="A2:F2"/><mergeCell ref="A3:F3"/></mergeCells></worksheet>')
     styles = '''<?xml version="1.0" encoding="UTF-8"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-<numFmts count="2"><numFmt numFmtId="164" formatCode="yyyy-mm-dd hh:mm:ss"/><numFmt numFmtId="165" formatCode="0.000000"/></numFmts>
+<numFmts count="2"><numFmt numFmtId="164" formatCode="yyyy-mm-dd hh:mm:ss"/><numFmt numFmtId="165" formatCode="0.0000"/></numFmts>
 <fonts count="2"><font><sz val="11"/><color rgb="FF141210"/><name val="Inter"/></font><font><b/><sz val="11"/><color rgb="FF141210"/><name val="Inter"/></font></fonts>
 <fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF6F3EC"/><bgColor indexed="64"/></patternFill></fill></fills>
 <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>

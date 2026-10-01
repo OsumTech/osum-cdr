@@ -52,5 +52,11 @@
 {{ forms.field('amount', 'Amount received · USD', request.form.get('amount', '') if error and request.form.get('action') == 'topup' else '', 'number') }}
 {{ forms.field('reference', 'Unique payment reference', request.form.get('reference', '') if error and request.form.get('action') == 'topup' else '') }}</div>
 <label class="checkbox"><input type="checkbox" name="payment_verified" required>I have verified that this payment was received.</label><button class="button">Record payment</button></form></section>
+<section class="admin-panel"><h2>Deduct balance (negative recharge)</h2><p class="form-help">Enter a positive amount to subtract. This records a balance adjustment, not a usage charge or an external refund. The balance may become negative. Reusing the same reference and details will not deduct twice.</p>
+<form method="post">{{ forms.csrf('deduct') }}<div class="form-grid">
+{{ forms.field('deduction_amount', 'Amount to deduct - USD', request.form.get('deduction_amount', '') if error and request.form.get('action') == 'deduct' else '', 'number') }}
+{{ forms.field('deduction_reference', 'Unique deduction reference', request.form.get('deduction_reference', '') if error and request.form.get('action') == 'deduct' else '') }}
+{{ forms.field('deduction_reason', 'Reason for deduction', request.form.get('deduction_reason', '') if error and request.form.get('action') == 'deduct' else '') }}
+</div><button class="button">Deduct from balance</button></form></section>
 <section class="records"><div class="section-heading"><h2>Recent ledger entries</h2></div>{% if entries %}<div class="table-scroll" tabindex="0" role="region" aria-label="Client ledger"><table><thead><tr><th>Date · UTC</th><th>Description</th><th class="numeric">Amount · USD</th><th class="numeric">Balance · USD</th></tr></thead><tbody>{% for entry in entries %}<tr><td>{{ entry.created_at.strftime('%d %b %Y · %H:%M') }}</td><td>{{ entry.description }}</td><td class="numeric">{{ entry.amount|precise }}</td><td class="numeric">{{ entry.balance_after|precise }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="empty-state compact"><p>No charges or payments recorded.</p></div>{% endif %}</section>
 {% endblock %}
