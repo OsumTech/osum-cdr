@@ -4,7 +4,7 @@ from flask import current_app
 
 from .models import db
 
-VERSION = 4
+VERSION = 5
 
 
 def upgrade_schema():
@@ -50,6 +50,26 @@ def upgrade_schema():
             connection.execute(text('ALTER TABLE tenant ADD COLUMN vendor_cost_pricing BOOLEAN NOT NULL DEFAULT FALSE'))
         if 'integration' in tables and 'reconciliation_enabled' not in {c['name'] for c in inspect(connection).get_columns('integration')}:
             connection.execute(text('ALTER TABLE integration ADD COLUMN reconciliation_enabled BOOLEAN NOT NULL DEFAULT FALSE'))
+        if 'call' in tables and 'did_id' not in {c['name'] for c in inspect(connection).get_columns('call')}:
+            if not postgres:
+                raise RuntimeError('Existing inbound schema upgrades require PostgreSQL.')
+            connection.execute(text('ALTER TABLE did ADD CONSTRAINT did_id_tenant_unique UNIQUE (id, tenant_id)'))
+            connection.execute(text('ALTER TABLE "call" ALTER COLUMN sip_account_id DROP NOT NULL'))
+            connection.execute(text('ALTER TABLE "call" ADD COLUMN did_id INTEGER'))
+            connection.execute(text('ALTER TABLE "call" ADD CONSTRAINT call_did_tenant_fk FOREIGN KEY (did_id,tenant_id) REFERENCES did(id,tenant_id)'))
+            for constraint in inspect(connection).get_check_constraints('call'):
+                if 'duration' in constraint['sqltext']:
+                    name = connection.dialect.identifier_preparer.quote(constraint['name'])
+                    connection.execute(text(f'ALTER TABLE "call" DROP CONSTRAINT {name}'))
+            connection.execute(text('ALTER TABLE "call" ADD CONSTRAINT call_source CHECK ((sip_account_id IS NOT NULL AND did_id IS NULL) OR (sip_account_id IS NULL AND did_id IS NOT NULL))'))
+            connection.execute(text('ALTER TABLE "call" ADD CONSTRAINT call_amounts CHECK (duration >= 0 AND (duration > 0 OR did_id IS NOT NULL) AND billed_seconds >= duration AND cost >= 0)'))
+        if 'cdr_partition' in tables and 'did_id' not in {c['name'] for c in inspect(connection).get_columns('cdr_partition')}:
+            if not postgres:
+                raise RuntimeError('Existing inbound schema upgrades require PostgreSQL.')
+            connection.execute(text('ALTER TABLE cdr_partition ALTER COLUMN sip_account_id DROP NOT NULL'))
+            connection.execute(text('ALTER TABLE cdr_partition ADD COLUMN did_id INTEGER REFERENCES did(id)'))
+            connection.execute(text('ALTER TABLE cdr_partition ADD CONSTRAINT partition_did_day UNIQUE (did_id, day)'))
+            connection.execute(text('ALTER TABLE cdr_partition ADD CONSTRAINT partition_source CHECK ((sip_account_id IS NOT NULL AND did_id IS NULL) OR (sip_account_id IS NULL AND did_id IS NOT NULL))'))
         db.metadata.create_all(connection)
         if postgres:
             connection.execute(text('''CREATE OR REPLACE FUNCTION protect_billing_history() RETURNS trigger AS $$

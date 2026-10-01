@@ -10,9 +10,9 @@ from decimal import Decimal
 
 from sqlalchemy import select
 
-from .billing import bill_call, decimal_amount, normalise_number
+from .billing import bill_call, bill_inbound, decimal_amount, normalise_number
 from .integrations import decrypt_token, read_calls
-from .models import AuditEvent, Call, CdrPartition, CsvReconciliation, Integration, SipAccount, db, utcnow
+from .models import AuditEvent, Call, CdrPartition, CsvReconciliation, Did, Integration, SipAccount, db, utcnow
 
 MAX_RECORDS = 100000
 LOOKBACK_DAYS = 7
@@ -28,8 +28,14 @@ def fingerprint(value):
 
 def canonical_rows(rows, account, day):
     groups = {}
+    inbound = isinstance(account, Did)
     for row in rows:
-        if row.get('type') != 'sip' or str(row.get('sip_account')) != account.provider_id:
+        if inbound:
+            if row.get('type') != 'incoming':
+                raise ValueError('Unexpected type in inbound export.')
+            if normalise_number(row.get('did_number')) != normalise_number(account.number):
+                continue
+        elif row.get('type') != 'sip' or str(row.get('sip_account')) != account.provider_id:
             raise ValueError('CDR account or call type does not match the requested partition.')
         duration = row.get('duration')
         if isinstance(duration, bool) or not isinstance(duration, int) or duration < 0:
@@ -40,20 +46,28 @@ def canonical_rows(rows, account, day):
             raise ValueError('CDR timestamp is invalid.') from None
         if started.tzinfo is None or started.astimezone(timezone.utc).date() != day or started > utcnow():
             raise ValueError('CDR timestamp is outside the requested UTC day.')
-        if duration == 0:
+        if duration == 0 and not inbound:
             continue
         caller = row.get('from')
         if not isinstance(caller, str) or not caller or len(caller) > 500:
             raise ValueError('CDR caller is missing or invalid.')
         # Keep caller presentation intact; lossy normalisation can merge calls.
         identity = [1, account.id, account.provider_id, started.astimezone(timezone.utc).isoformat(),
-                    caller, normalise_number(row.get('to')), duration, 'sip']
+                    caller, normalise_number(account.number if inbound else row.get('to')), duration, 'incoming' if inbound else 'sip']
+        if inbound:
+            # The receiving DID owns the charge; forwarding targets are not tenant identifiers.
+            target = row.get('to')
+            if not isinstance(target, str) or not target or len(target) > 500:
+                raise ValueError('Inbound forwarding destination is invalid.')
+            identity.append(target)
         if row.get('amount') is None:
             raise ValueError('CDR provider charge is missing.')
         cost = decimal_amount(row['amount'])
         rate = decimal_amount(row['per_minute']) if row.get('per_minute') is not None else None
         if cost < 0 or (rate is not None and rate < 0):
             raise ValueError('CDR provider amounts must be non-negative.')
+        if inbound and duration == 0 and cost == 0:
+            continue
         key = fingerprint(identity)
         attributes = {'identity': identity, 'cost': str(cost), 'rate': str(rate) if rate is not None else None}
         if key in groups:
@@ -65,12 +79,18 @@ def canonical_rows(rows, account, day):
     return groups
 
 
-def fetch_partition(token, account, day):
+def fetch_partition(token, account, day, inbound_cache=None):
+    inbound = isinstance(account, Did)
+    if inbound and inbound_cache is not None and day in inbound_cache:
+        return canonical_rows(inbound_cache[day], account, day)
     rows, expected = [], None
     page = 1
     while True:
-        payload = read_calls(token, {'type': 'sip', 'sip_account': account.provider_id, 'missed': '0',
-                                    'from': day.isoformat(), 'to': day.isoformat(), 'page': page, 'per_page': 1000})
+        params = {'type': 'incoming' if inbound else 'sip', 'missed': '1' if inbound else '0',
+                  'from': day.isoformat(), 'to': day.isoformat(), 'page': page, 'per_page': 1000}
+        if not inbound:
+            params['sip_account'] = account.provider_id
+        payload = read_calls(token, params)
         meta = payload['pagination']
         values = [meta.get(k) for k in ('page', 'per_page', 'total_pages', 'total_records')]
         if any(isinstance(v, bool) or not isinstance(v, int) for v in values):
@@ -92,7 +112,13 @@ def fetch_partition(token, account, day):
         page += 1
     if len(rows) != expected[2]:
         raise ValueError('Provider export count mismatch.')
+    if inbound and inbound_cache is not None:
+        inbound_cache[day] = rows
     return canonical_rows(rows, account, day)
+
+
+def partition_scope(account):
+    return CdrPartition.did_id == account.id if isinstance(account, Did) else CdrPartition.sip_account_id == account.id
 
 
 def has_corrections(accepted, latest):
@@ -107,11 +133,12 @@ def save_snapshot(account, day, groups, version):
                                 .execution_options(populate_existing=True)).scalar_one()
     if not config.reconciliation_enabled or config.token_version != version:
         raise ValueError('Integration changed during collection; snapshot discarded.')
-    partition = db.session.scalar(select(CdrPartition).where(CdrPartition.sip_account_id == account.id,
+    partition = db.session.scalar(select(CdrPartition).where(partition_scope(account),
                                                            CdrPartition.day == day).with_for_update())
     now, digest = utcnow(), fingerprint(groups)
     if partition is None:
-        partition = CdrPartition(sip_account_id=account.id, day=day, digest=digest, token_version=version,
+        source = {'did_id': account.id} if isinstance(account, Did) else {'sip_account_id': account.id}
+        partition = CdrPartition(**source, day=day, digest=digest, token_version=version,
                                  rows=groups, accepted_rows={}, observations=1, first_seen=now, checked_at=now)
         db.session.add(partition)
     elif partition.digest == digest and partition.token_version == version:
@@ -141,11 +168,14 @@ def collect(config):
         raise ValueError('Collection start cannot be in the future.')
     token, version, start = decrypt_token(config), config.token_version, config.start_date
     accounts = db.session.scalars(select(SipAccount).where(SipAccount.active.is_(True)).order_by(SipAccount.id)).all()
+    accounts += db.session.scalars(select(Did).where(Did.active.is_(True)).order_by(Did.id)).all()
+    inbound_cache = {}
     collected, failed = 0, []
+    first_error = None
     for account in accounts:
         account_id = account.id
         today = utcnow().date()
-        existing = {p.day: p for p in db.session.scalars(select(CdrPartition).where(CdrPartition.sip_account_id == account_id))}
+        existing = {p.day: p for p in db.session.scalars(select(CdrPartition).where(partition_scope(account)))}
         recent_start = max(start, today - timedelta(days=LOOKBACK_DAYS - 1))
         days = {recent_start + timedelta(days=n) for n in range((today - recent_start).days + 1)}
         # Backfill seven old days per cycle; revisit older partitions weekly.
@@ -158,29 +188,46 @@ def collect(config):
             day += timedelta(days=1)
         for day in sorted(days):
             try:
-                groups = fetch_partition(token, account, day)
+                groups = fetch_partition(token, account, day, inbound_cache) if isinstance(account, Did) else fetch_partition(token, account, day)
                 save_snapshot(account, day, groups, version)
                 collected += 1
-            except Exception:
+            except Exception as exc:
                 db.session.rollback()
-                failed.append((account_id, day.isoformat()))
+                if first_error is None:
+                    first_error = str(exc)[:160] if isinstance(exc, ValueError) else 'Unexpected provider data or database error.'
+                failed.append((('DID ' if isinstance(account, Did) else 'SIP ') + str(account_id), day.isoformat()))
                 # A previously reviewable snapshot cannot remain approvable after
                 # an unsuccessful refresh. Preserve its data for investigation.
-                partition = db.session.scalar(select(CdrPartition).where(CdrPartition.sip_account_id == account_id,
+                partition = db.session.scalar(select(CdrPartition).where(partition_scope(account),
                                                                          CdrPartition.day == day))
                 if partition:
                     partition.status, partition.observations = 'fetch_error', 0
                 db.session.commit()
-        account.last_sync_error = any(a == account_id for a, _ in failed)
+        if isinstance(account, SipAccount):
+            account.last_sync_error = any(a == f'SIP {account_id}' for a, _ in failed)
         db.session.commit()
     config = db.session.get(Integration, 1)
     config.last_sync_at, config.sync_requested = utcnow(), False
     config.last_sync_message = f'Shadow collection: {collected} day snapshots checked; {len(failed)} failed. No charges posted.'
     if failed:
         config.last_sync_message += f' Failed account/day: {failed[:3]}.'
+    mapped = {normalise_number(a.number) for a in accounts if isinstance(a, Did)}
+    if not mapped:
+        config.last_sync_message += ' Inbound not collected: assign active DIDs to clients.'
+    else:
+        unmapped = 0
+        for rows in inbound_cache.values():
+            for row in rows:
+                try:
+                    unmapped += int(normalise_number(row.get('did_number')) not in mapped)
+                except ValueError:
+                    unmapped += 1
+        if unmapped:
+            config.last_sync_message += f' {unmapped} inbound records have unassigned DIDs; not billed.'
+    config.last_sync_message = config.last_sync_message[:300]
     db.session.commit()
     if failed:
-        raise ValueError(f'Shadow collection failed for account/day partitions: {failed[:10]}. No charges posted.')
+        raise ValueError(f'Shadow collection failed for account/day partitions: {failed[:10]}. {first_error} No charges posted.')
     return {'enabled': True, 'mode': 'shadow', 'partitions': collected, 'imported': 0}
 
 
@@ -204,12 +251,13 @@ def approve(partition_id, digest, actor_id):
                                        .order_by(CsvReconciliation.id.desc()).limit(1))
         if comparison and (not comparison.report['matched'] or comparison.report['snapshot_digest'] != partition.digest):
             raise ValueError('The latest CSV comparison differs or is stale. Reconcile and upload a matching export before acceptance.')
-        account = db.session.get(SipAccount, partition.sip_account_id)
+        account = partition.account
         if not account.active:
             raise ValueError('This SIP account is inactive.')
         # Prevent switching import strategies from double-billing a day.
         start = datetime.combine(partition.day, time.min, tzinfo=timezone.utc)
-        legacy = db.session.scalar(select(Call.id).where(Call.sip_account_id == account.id, Call.started_at >= start,
+        scope = Call.did_id == account.id if partition.inbound else Call.sip_account_id == account.id
+        legacy = db.session.scalar(select(Call.id).where(scope, Call.started_at >= start,
             Call.started_at < start + timedelta(days=1), ~Call.vendor_call_id.startswith('recon:v1:')))
         if legacy:
             raise ValueError('This day already contains provider-ID imports; reconcile the cutover before billing.')
@@ -218,9 +266,13 @@ def approve(partition_id, digest, actor_id):
             old_count = partition.accepted_rows.get(key, {}).get('count', 0)
             identity = group['identity']
             for occurrence in range(old_count + 1, group['count'] + 1):
-                imported += int(bill_call(account.id, f'recon:v1:{key}:{occurrence}',
-                    datetime.fromisoformat(identity[3]), identity[5], identity[6],
-                    wholesale_rate=group['rate'], wholesale_cost=group['cost'], commit=False))
+                if partition.inbound:
+                    imported += int(bill_inbound(account.id, f'recon:v1:{key}:{occurrence}',
+                        datetime.fromisoformat(identity[3]), identity[6], group['cost'], commit=False))
+                else:
+                    imported += int(bill_call(account.id, f'recon:v1:{key}:{occurrence}',
+                        datetime.fromisoformat(identity[3]), identity[5], identity[6],
+                        wholesale_rate=group['rate'], wholesale_cost=group['cost'], commit=False))
         partition.accepted_rows = partition.rows
         partition.accepted_at, partition.status = utcnow(), 'accepted'
         db.session.add(AuditEvent(actor_id=actor_id, action='reconciliation.accept', target=str(partition.id),

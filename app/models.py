@@ -78,7 +78,18 @@ class Did(db.Model):
     active = db.Column(db.Boolean, nullable=False, default=True)
     initial_cost = db.Column(db.Numeric(18, 6), nullable=False, default=Decimal('0'))
     setup_cost = db.Column(db.Numeric(18, 6), nullable=False, default=Decimal('0'))
+    tenant = db.relationship(Tenant)
+
+    @property
+    def provider_id(self):
+        return self.number.lstrip('+')
+
+    @property
+    def label(self):
+        return f'Inbound DID {self.number}'
+
     __table_args__ = (
+        db.UniqueConstraint('id', 'tenant_id'),
         db.CheckConstraint('monthly_charge >= 0'),
         db.CheckConstraint('billing_day BETWEEN 1 AND 31'),
     )
@@ -87,7 +98,8 @@ class Did(db.Model):
 class Call(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     tenant_id = db.Column(db.Integer, db.ForeignKey('tenant.id'), nullable=False, index=True)
-    sip_account_id = db.Column(db.Integer, nullable=False)
+    sip_account_id = db.Column(db.Integer)
+    did_id = db.Column(db.Integer)
     vendor_call_id = db.Column(db.String(200), nullable=False, unique=True)
     started_at = db.Column(db.DateTime(timezone=True), nullable=False, index=True)
     destination = db.Column(db.String(32), nullable=False)
@@ -100,7 +112,9 @@ class Call(db.Model):
     wholesale_cost = db.Column(db.Numeric(18, 6))
     __table_args__ = (
         db.ForeignKeyConstraint(['sip_account_id', 'tenant_id'], ['sip_account.id', 'sip_account.tenant_id']),
-        db.CheckConstraint('duration > 0 AND billed_seconds >= duration AND cost >= 0'),
+        db.ForeignKeyConstraint(['did_id', 'tenant_id'], ['did.id', 'did.tenant_id']),
+        db.CheckConstraint('(sip_account_id IS NOT NULL AND did_id IS NULL) OR (sip_account_id IS NULL AND did_id IS NOT NULL)', name='call_source'),
+        db.CheckConstraint('duration >= 0 AND (duration > 0 OR did_id IS NOT NULL) AND billed_seconds >= duration AND cost >= 0', name='call_amounts'),
     )
 
 
@@ -176,7 +190,8 @@ class SchemaVersion(db.Model):
 class CdrPartition(db.Model):
     """Complete provider-day snapshots; shadow data never enters customer views."""
     id = db.Column(db.Integer, primary_key=True)
-    sip_account_id = db.Column(db.Integer, db.ForeignKey('sip_account.id'), nullable=False)
+    sip_account_id = db.Column(db.Integer, db.ForeignKey('sip_account.id'))
+    did_id = db.Column(db.Integer, db.ForeignKey('did.id'))
     day = db.Column(db.Date, nullable=False)
     rows = db.Column(db.JSON, nullable=False, default=dict)
     accepted_rows = db.Column(db.JSON, nullable=False, default=dict)
@@ -189,8 +204,19 @@ class CdrPartition(db.Model):
     status = db.Column(db.String(30), nullable=False, default='observing')
     record_count = db.Column(db.Integer, nullable=False)
     wholesale_total = db.Column(db.Numeric(18, 6), nullable=False)
-    account = db.relationship(SipAccount)
-    __table_args__ = (db.UniqueConstraint('sip_account_id', 'day'),)
+    outbound_account = db.relationship(SipAccount)
+    did = db.relationship(Did)
+
+    @property
+    def account(self):
+        return self.did if self.did_id is not None else self.outbound_account
+
+    @property
+    def inbound(self):
+        return self.did_id is not None
+
+    __table_args__ = (db.UniqueConstraint('sip_account_id', 'day'), db.UniqueConstraint('did_id', 'day'),
+        db.CheckConstraint('(sip_account_id IS NOT NULL AND did_id IS NULL) OR (sip_account_id IS NULL AND did_id IS NOT NULL)', name='partition_source'))
 
 
 class CsvReconciliation(db.Model):
@@ -200,3 +226,26 @@ class CsvReconciliation(db.Model):
     report = db.Column(db.JSON, nullable=False)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
     partition = db.relationship(CdrPartition)
+
+
+class WebhookSettings(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    enabled = db.Column(db.Boolean, nullable=False, default=False)
+    secret_hash = db.Column(db.String(64), nullable=False)
+    secret_encrypted = db.Column(db.Text, nullable=False)
+    __table_args__ = (db.CheckConstraint('id = 1'),)
+
+
+class WebhookEvent(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    call_id = db.Column(db.String(200), nullable=False)
+    direction = db.Column(db.String(16), nullable=False)
+    fingerprint = db.Column(db.String(64), nullable=False)
+    payload = db.Column(db.JSON, nullable=False)
+    tenant_id = db.Column(db.Integer, db.ForeignKey('tenant.id'))
+    did_id = db.Column(db.Integer, db.ForeignKey('did.id'))
+    status = db.Column(db.String(24), nullable=False)
+    deliveries = db.Column(db.Integer, nullable=False, default=1)
+    received_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+    last_received_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+    __table_args__ = (db.UniqueConstraint('call_id', 'direction'),)

@@ -8,7 +8,7 @@ from app.schema import upgrade_schema
 def test_fresh_schema_upgrade_is_idempotent(app):
     upgrade_schema()
     upgrade_schema()
-    assert db.session.get(SchemaVersion, 1).version == 4
+    assert db.session.get(SchemaVersion, 1).version == 5
     assert db.session.get(Tenant, 1).name == 'Test Company A'
 
 
@@ -32,6 +32,27 @@ def test_v3_upgrade_adds_paused_reconciliation(app):
         connection.execute(text('DROP TABLE cdr_partition'))
     upgrade_schema()
     assert db.session.get(Integration, 1).reconciliation_enabled is False
+
+
+def test_v4_upgrade_preserves_outbound_charges(app):
+    from datetime import datetime, timezone
+    from app.billing import bill_call
+    if db.engine.dialect.name != 'postgresql':
+        pytest.skip('Existing v4 production upgrades require PostgreSQL')
+    bill_call(1, 'already-billed', datetime(2025, 1, 1, tzinfo=timezone.utc), '447700900123', 60)
+    db.session.remove()
+    with db.engine.begin() as connection:
+        connection.execute(text('ALTER TABLE "call" DROP COLUMN did_id CASCADE'))
+        connection.execute(text('ALTER TABLE "call" ALTER COLUMN sip_account_id SET NOT NULL'))
+        connection.execute(text('ALTER TABLE "call" ADD CHECK (duration > 0 AND billed_seconds >= duration AND cost >= 0)'))
+        connection.execute(text('ALTER TABLE cdr_partition DROP COLUMN did_id CASCADE'))
+        connection.execute(text('ALTER TABLE cdr_partition ALTER COLUMN sip_account_id SET NOT NULL'))
+    upgrade_schema()
+    upgrade_schema()
+    call = db.session.scalar(select(Call).where(Call.vendor_call_id == 'already-billed'))
+    assert call.did_id is None and call.sip_account_id == 1
+    assert str(call.cost) == '0.028000'
+    assert str(db.session.get(Tenant, 1).balance) == '-0.028000'
 
 
 def test_v1_upgrade_preserves_existing_customer_and_rates(app):

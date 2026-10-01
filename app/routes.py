@@ -106,8 +106,9 @@ def filtered_calls():
 def export_calls():
     from .exports import cdr_workbook
     statement, start, end = filtered_calls()
-    rows = db.session.execute(statement.add_columns(SipAccount.label).join(SipAccount,
+    rows = db.session.execute(statement.add_columns(func.coalesce(SipAccount.label, Did.number)).outerjoin(SipAccount,
         (SipAccount.id == Call.sip_account_id) & (SipAccount.tenant_id == current_user.tenant_id))
+        .outerjoin(Did, (Did.id == Call.did_id) & (Did.tenant_id == current_user.tenant_id))
         .order_by(Call.started_at.desc(), Call.id.desc()).limit(50001)).all()
     if len(rows) > 50000:
         flash('This export exceeds 50,000 calls. Choose a smaller date range; no partial file was exported.')

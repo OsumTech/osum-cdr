@@ -36,6 +36,7 @@ def totals(records):
 
 
 def compare_csv(data, partition, offset_minutes):
+    inbound = bool(getattr(partition, 'inbound', False))
     if not data or len(data) > MAX_BYTES:
         raise ValueError('Choose a non-empty CSV smaller than 900 KB. Export one SIP account/day at a time.')
     if not -720 <= offset_minutes <= 840 or offset_minutes % 15:
@@ -60,27 +61,42 @@ def compare_csv(data, partition, offset_minutes):
                 raise ValueError('CSV has too many records.')
             if None in row or any(row.get(name) is None for name in REQUIRED):
                 raise ValueError(f'CSV row {index} has an invalid number of columns.')
-            if row['SIP ID'].strip() != partition.account.provider_id:
+            if inbound:
+                if row['Type'].strip().upper() == 'SIP TERM':
+                    ignored += 1
+                    continue
+                receiving = row.get('DID number') or row.get('DID Number') or row.get('did_number') or row['To']
+                try:
+                    receiving = normalise_number(receiving)
+                except ValueError:
+                    raise ValueError('Inbound CSV must identify the receiving DID in a DID number column or To; a forwarding target is insufficient.') from None
+                if receiving != normalise_number(partition.account.number):
+                    ignored += 1
+                    continue
+                if row['Type'].strip().upper() not in ('INCOMING', 'INBOUND', 'DID', 'DID ORIG'):
+                    raise ValueError('Unrecognised inbound CSV call type. Confirm the provider export format before comparing.')
+            elif row['SIP ID'].strip() != partition.account.provider_id:
                 ignored += 1
                 continue
             started = datetime.strptime(row['Date'].strip() + ' ' + row['Time'].strip(), '%m/%d/%y %I:%M:%S %p').replace(tzinfo=export_zone).astimezone(timezone.utc)
             if started.date() != partition.day:
                 ignored += 1
                 continue
-            if row['Type'].strip() != 'SIP TERM':
+            if not inbound and row['Type'].strip() != 'SIP TERM':
                 raise ValueError(f'CSV row {index} is not an outbound SIP call.')
             duration = int(row['Duration'])
             cost = decimal_amount(row['Charge'])
             if duration < 0 or cost < 0:
                 raise ValueError(f'CSV row {index} has a negative duration or charge.')
             if duration == 0:
-                if cost != 0:
+                if cost != 0 and not inbound:
                     raise ValueError(f'CSV row {index} has a charge but zero duration; investigate before reconciliation.')
-                zero_duration += 1
-                continue
+                if cost == 0:
+                    zero_duration += 1
+                    continue
             if not row['From'].strip():
                 raise ValueError(f'CSV row {index} has no caller.')
-            actual[key(started, row['From'], row['To'], duration, cost)] += 1
+            actual[key(started, row['From'], receiving if inbound else row['To'], duration, cost)] += 1
     except (InvalidOperation, OverflowError, csv.Error) as exc:
         raise ValueError('CSV contains malformed values.') from exc
     if not actual and not zero_duration:

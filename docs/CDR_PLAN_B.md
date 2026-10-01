@@ -3,6 +3,22 @@
 Status: implemented in schema version 4 as scheduled shadow collection with
 explicit administrator acceptance of closed days. Disabled by default.
 
+Schema version 5 adds separate receiving-DID/day inbound snapshots. Incoming API
+records are fetched with `type=incoming`, including missed calls, and mapped by
+`did_number`. The paginated incoming day is downloaded once per run and reused
+for all assigned active DIDs being checked that day. Only mapped numbers are
+billed; status reports unassigned numbers encountered during those downloads.
+With no active DIDs, status explicitly says inbound collection was not performed.
+Positive-duration calls and charged zero-duration incoming records are retained.
+Inbound costs always pass through unchanged at the application's six-decimal
+precision. The old outbound fingerprints and accepted snapshots are preserved.
+
+For inbound CSV verification, the receiving number must appear in a `DID number`,
+`DID Number`, `did_number` column or in `To`. Supported inbound Type labels are
+`INCOMING`, `INBOUND`, `DID`, and `DID ORIG`; unrecognised types fail validation.
+Do not map a forwarded extension/SIP destination to a client implicitly. The real
+provider's inbound CSV layout must be checked before relying on that comparison.
+
 ## Current workflow
 
 Save the API token and first collection date in Integrations, confirm USD costs,

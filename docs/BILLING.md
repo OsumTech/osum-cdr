@@ -2,6 +2,18 @@
 
 ## Rating and ledger
 
+Inbound CDRs in shadow reconciliation (schema 5) are mapped through the API's
+`did_number`, never the forwarding `to` target or a guessed SIP account. Only
+active DIDs assigned to a client are collected into that client's inbound
+snapshots. Each receiving DID/day is reviewed independently. Accepted inbound
+calls debit the exact final provider `amount` at six-decimal precision, always
+with zero uplift; outgoing retail settings do not apply. A charged zero-duration
+inbound record is retained; a zero-duration zero-charge record is skipped.
+Missing cost or receiving DID blocks the affected snapshot. The existing
+provider-ID import mode remains outbound-only; use shadow reconciliation for
+inbound. Initial DID purchase and monthly renewal charges are separate from
+inbound call usage and must not be added to each call.
+
 Currency is USD. Decimal amounts retain six places; floating point is never used.
 New-client forms suggest USD 0.016000/minute for `441`/`442` and USD 0.028000/minute
 for `447`. The administrator sets each client's actual rates in the dashboard.

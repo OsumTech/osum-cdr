@@ -6,4 +6,4 @@ RUN pip install --no-cache-dir -r requirements.txt && useradd --uid 10001 --crea
 COPY --chown=portal:portal app ./app
 USER portal
 EXPOSE 8000
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "120", "--access-logfile", "-", "app:create_app()"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "120", "--access-logfile", "-", "--logger-class", "app.gunicorn_logging.RedactedAccessLogger", "app:create_app()"]

@@ -53,6 +53,9 @@ def create_app(test_config=None):
     from .cli import register_commands
     app.register_blueprint(portal)
     app.register_blueprint(admin)
+    from .webhooks import webhooks
+    csrf.exempt(webhooks)
+    app.register_blueprint(webhooks)
     register_commands(app)
 
     @app.template_filter('money')

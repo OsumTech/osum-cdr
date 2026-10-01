@@ -145,6 +145,43 @@ def following_month(day, anchor):
     return date(year, month, min(anchor, calendar.monthrange(year, month)[1]))
 
 
+def bill_inbound(did_id, call_id, started_at, duration, cost, *, commit=True):
+    """Inbound usage always passes through the final vendor cost, never retail rates."""
+    try:
+        if not call_id or len(call_id) > 200 or started_at.tzinfo is None or started_at > utcnow():
+            raise ValueError('Invalid inbound call identifier or timestamp.')
+        if isinstance(duration, bool) or not isinstance(duration, int) or duration < 0 or cost is None:
+            raise ValueError('Inbound usage requires duration and the actual provider charge.')
+        cost = decimal_amount(cost)
+        if cost < 0:
+            raise ValueError('Inbound cost cannot be negative.')
+        did = db.session.get(Did, did_id)
+        if did is None:
+            raise ValueError('Assign the receiving DID to a client before billing inbound calls.')
+        tenant = locked_tenant(did.tenant_id)
+        existing = db.session.scalar(select(Call).where(Call.vendor_call_id == call_id))
+        if existing:
+            if (existing.did_id != did_id or existing.duration != duration or existing.wholesale_cost != cost
+                    or existing.started_at.replace(tzinfo=timezone.utc) != started_at.astimezone(timezone.utc)):
+                raise ValueError('Inbound identifier conflicts with an existing charge.')
+            if commit:
+                db.session.rollback()
+            return False
+        rate = decimal_amount(cost * 60 / Decimal(duration)) if duration else Decimal(0)
+        db.session.add(Call(tenant_id=tenant.id, did_id=did_id, vendor_call_id=call_id, started_at=started_at,
+            destination=normalise_number(did.number), duration=duration, billed_seconds=duration,
+            cost=cost, rate=rate, rate_label='Inbound · vendor cost', wholesale_cost=cost))
+        post_entry(tenant, f'call:{call_id}', 'usage', f'Inbound call to {did.number} · vendor cost', -cost)
+        if commit:
+            db.session.commit()
+        else:
+            db.session.flush()
+        return True
+    except Exception:
+        db.session.rollback()
+        raise
+
+
 def activate_did(tenant_id, number, initial_cost, setup_cost, monthly_charge, activation_date, actor_id):
     """First invoice: initial CLI price + setup. Later: only monthly charge."""
     number = '+' + normalise_number(number)

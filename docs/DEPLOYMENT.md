@@ -30,7 +30,7 @@ docker compose run --rm web flask --app app create-admin
 
 Enter your administrator email and a strong password. No client company,
 customer login, SIP account, number or demonstration record is created.
-`init-db` creates schema version 4; `upgrade-db` safely upgrades earlier releases.
+`init-db` creates schema version 5; `upgrade-db` safely upgrades earlier releases.
 Version 3 adds optional vendor-cost call pricing; existing clients keep their retail pricing.
 If you already created a customer in version 1, use a different email for the
 administrator; the existing customer remains intact.
@@ -109,6 +109,12 @@ cron command below collects snapshots without charging customers. Run it again
 at least five minutes later to compare complete snapshots. Review closed days
 under **Review imported days** and explicitly accept them to post charges.
 No manual CSV download is needed. See [CDR_PLAN_B.md](CDR_PLAN_B.md).
+Version 5 also collects incoming calls for active receiving DIDs assigned to
+clients. Assign previously purchased numbers as **Existing number** to avoid
+charging setup again. Inbound snapshots are reviewed separately from outbound
+SIP snapshots; accepting an inbound day never repeats outbound charges. Inbound
+call charges always equal the provider's final USD amount, regardless of client
+retail rates. Collection and acceptance do not themselves trigger DID renewals.
 Customer **Call history → Export Excel** downloads accepted/rated calls for the
 selected UTC date range and destination filter (up to 50,000 rows per download).
 
@@ -176,6 +182,18 @@ above before creating the administrator; pulling source alone does not rebuild
 the image.
 
 ## Before live billing
+
+For the optional **webhook shadow test**, see [WEBHOOK_TEST.md](WEBHOOK_TEST.md).
+After deploying schema 5, update the active HTTPS Nginx template before creating
+the receiver URL, so its private path is excluded from logs:
+
+```sh
+cp deploy/nginx-https.conf deploy/nginx-active/default.conf
+docker compose exec nginx nginx -t
+docker compose exec nginx nginx -s reload
+```
+
+Webhooks currently collect test evidence only. They never debit customers.
 
 - Verify login, logout, tenant isolation and PDF downloads over HTTPS.
 - Confirm a real CDR's stable ID, account mapping, timezone and duration.

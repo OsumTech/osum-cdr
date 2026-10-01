@@ -20,7 +20,7 @@ def cdr_workbook(rows, company, start, end):
     body = ['<row r="1">' + cell('A', 1, 'Osumtech · Call history', 1) + '</row>',
             '<row r="2">' + cell('A', 2, company) + '</row>',
             '<row r="3">' + cell('A', 3, f'{start} to {end} inclusive · UTC · USD') + '</row>']
-    headers = ['Time (UTC)', 'SIP account', 'Destination', 'Description', 'Duration (seconds)', 'Charge (USD)']
+    headers = ['Time (UTC)', 'SIP account / receiving DID', 'Destination / receiving DID', 'Description', 'Duration (seconds)', 'Charge (USD)']
     body.append('<row r="5">' + ''.join(cell(chr(65+i), 5, h, 1) for i, h in enumerate(headers)) + '</row>')
     for index, (call, label) in enumerate(rows, start=6):
         serial = (call.started_at.replace(tzinfo=None) - datetime(1899, 12, 30)).total_seconds() / 86400

@@ -11,9 +11,59 @@ from werkzeug.security import generate_password_hash
 
 from .billing import activate_did, decimal_amount, locked_tenant, normalise_number, top_up
 from .integrations import preview_calls, settings
-from .models import AuditEvent, Call, CdrPartition, CsvReconciliation, Did, Integration, Ledger, SipAccount, Tenant, User, db, utcnow
+from .models import AuditEvent, Call, CdrPartition, CsvReconciliation, Did, Integration, Ledger, SipAccount, Tenant, User, WebhookEvent, WebhookSettings, db, utcnow
 
 admin = Blueprint('admin', __name__, url_prefix='/admin')
+
+
+@admin.route('/webhooks', methods=['GET', 'POST'])
+def webhook_settings():
+    import hashlib
+    import secrets
+    from .webhooks import mapping
+    config = db.session.get(WebhookSettings, 1)
+    error = None
+    if request.method == 'POST':
+        try:
+            action = request.form.get('action')
+            if action == 'rotate':
+                secret = secrets.token_urlsafe(36)
+                if not config:
+                    config = WebhookSettings(id=1)
+                    db.session.add(config)
+                config.secret_hash = hashlib.sha256(secret.encode()).hexdigest()
+                config.secret_encrypted = Fernet(current_app.config['ENCRYPTION_KEY']).encrypt(secret.encode()).decode()
+                config.enabled = True
+                audit('webhook.rotate', 'didlogic', {'mode': 'shadow'})
+            elif action in ('pause', 'resume') and config:
+                config.enabled = action == 'resume'
+                audit('webhook.' + action, 'didlogic')
+            elif action == 'remap':
+                event = db.session.scalar(select(WebhookEvent).where(WebhookEvent.id == request.form.get('event_id', type=int)).with_for_update())
+                if not event or event.status != 'unmapped':
+                    raise ValueError('Only unmapped events can be checked again.')
+                did = mapping(event.payload)
+                if not did:
+                    raise ValueError('Assign the active CLI or receiving DID to the client first.')
+                event.did_id, event.tenant_id, event.status = did.id, did.tenant_id, 'mapped'
+                audit('webhook.remap', str(event.id), {'tenant_id': did.tenant_id})
+            else:
+                raise ValueError('Unknown webhook action.')
+            db.session.commit()
+            flash('Webhook shadow settings updated. No charges posted.')
+            return redirect(url_for('admin.webhook_settings'))
+        except ValueError as exc:
+            db.session.rollback()
+            error = str(exc)
+    receiver_url = None
+    if config:
+        secret = Fernet(current_app.config['ENCRYPTION_KEY']).decrypt(config.secret_encrypted.encode()).decode()
+        receiver_url = url_for('webhooks.didlogic', secret=secret, _external=True, _scheme='https')
+    events = db.paginate(select(WebhookEvent).order_by(WebhookEvent.last_received_at.desc(), WebhookEvent.id.desc()),
+                         per_page=50, error_out=False)
+    names = dict(db.session.execute(select(Tenant.id, Tenant.name)).all())
+    return render_template('admin/webhooks.html', title='Webhook shadow test', config=config, receiver_url=receiver_url,
+                           events=events, tenant_names=names, error=error), (400 if error else 200)
 
 
 @admin.before_request
@@ -251,8 +301,9 @@ def integration():
             elif action == 'shadow':
                 if not config.last_test_ok or not config.start_date or not config.currency_confirmed:
                     raise ValueError('Save a start date, confirm USD and test the connection first.')
-                if not db.session.scalar(select(SipAccount.id).where(SipAccount.active.is_(True))):
-                    raise ValueError('Map at least one SIP account to a client first.')
+                if (not db.session.scalar(select(SipAccount.id).where(SipAccount.active.is_(True)))
+                        and not db.session.scalar(select(Did.id).where(Did.active.is_(True)))):
+                    raise ValueError('Map at least one SIP account or receiving DID to a client first.')
                 config.enabled = False
                 config.reconciliation_enabled = config.sync_requested = True
                 audit('integration.shadow', 'didlogic', {'start_date': str(config.start_date)})

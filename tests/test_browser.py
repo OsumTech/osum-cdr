@@ -15,7 +15,7 @@ def test_csv_review_accept_and_customer_excel(app):
     from playwright.sync_api import sync_playwright
     from sqlalchemy import select
     from werkzeug.security import generate_password_hash
-    from app.models import CdrPartition, Integration, SipAccount, User, db, utcnow
+    from app.models import CdrPartition, Did, Integration, SipAccount, User, db, utcnow
     from app.reconciliation import canonical_rows, save_snapshot
     db.session.add(User(email='csv-browser@example.test', is_admin=True, password_hash=generate_password_hash('csv-browser-password')))
     db.session.add(Integration(id=1, reconciliation_enabled=True, currency_confirmed=True, token_version=1))
@@ -24,6 +24,12 @@ def test_csv_review_accept_and_customer_excel(app):
     groups = canonical_rows([{'type': 'sip', 'sip_account': 'provider-1', 'timestamp': '2025-01-01T12:00:00Z',
                              'from': '441234567890', 'to': '447700900123', 'duration': 30, 'amount': '0.008'}], account, date(2025, 1, 1))
     save_snapshot(account, date(2025, 1, 1), groups, 1)
+    inbound_did = Did(tenant_id=1, number='+442071234567', monthly_charge=5, next_billing_date=date(2027, 1, 1), billing_day=1)
+    db.session.add(inbound_did)
+    db.session.commit()
+    inbound_groups = canonical_rows([{'type': 'incoming', 'did_number': '442071234567', 'to': 'extension-100',
+        'from': 'anonymous', 'timestamp': '2025-01-01T12:01:00Z', 'duration': 60, 'amount': '0.0900'}], inbound_did, date(2025, 1, 1))
+    save_snapshot(inbound_did, date(2025, 1, 1), inbound_groups, 1)
     part = db.session.scalar(select(CdrPartition))
     part.checked_at = utcnow() - timedelta(minutes=6)
     db.session.commit()
@@ -43,7 +49,7 @@ def test_csv_review_accept_and_customer_excel(app):
             page.get_by_label('Password', exact=True).fill('csv-browser-password')
             page.get_by_role('button', name='Sign in').click()
             page.goto(base + '/admin/reconciliation')
-            page.get_by_role('link', name='Compare manual provider CSV').click()
+            page.get_by_role('link', name='Compare manual provider CSV').last.click()
             csv_data = b'Date,Time,SIP ID,Type,From,To,Duration,Charge\n01/01/25,12:00:00 pm,provider-1,SIP TERM,441234567890,447700900123,30,0.008\n'
             page.get_by_label('Provider CSV').set_input_files({'name': 'test-provider.csv', 'mimeType': 'text/csv', 'buffer': csv_data})
             page.get_by_label('Export timezone').select_option('0')
@@ -145,7 +151,7 @@ def test_admin_responsive_onboarding(app, monkeypatch):
             page.get_by_role('heading', name='Admin overview').wait_for()
             for width in (1440, 768, 390, 320):
                 page.set_viewport_size({'width': width, 'height': 1000})
-                for path in ('/admin/', '/admin/clients', '/admin/clients/new', '/admin/clients/1', '/admin/integrations', '/admin/calls', '/admin/reconciliation'):
+                for path in ('/admin/', '/admin/clients', '/admin/clients/new', '/admin/clients/1', '/admin/integrations', '/admin/calls', '/admin/reconciliation', '/admin/webhooks'):
                     response = page.goto(f'http://localhost:{server.server_port}{path}')
                     assert response.status == 200
                     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), (width, path)
@@ -166,6 +172,12 @@ def test_admin_responsive_onboarding(app, monkeypatch):
             page.get_by_role('button', name='Test connection & fetch CDRs').click()
             assert page.get_by_text('Connected. Fetched 0 real CDRs', exact=False).count() >= 1
             page.screenshot(path=str(results / 'admin-integration.png'), full_page=True)
+            page.goto(f'http://localhost:{server.server_port}/admin/webhooks')
+            page.get_by_role('button', name='Create shadow receiver').click()
+            assert page.get_by_label('Private CDR webhook URL').input_value().startswith('https://')
+            page.get_by_role('heading', name='Receiver enabled', exact=True).wait_for()
+            page.get_by_role('button', name='Pause receiver').click()
+            page.get_by_role('heading', name='Receiver paused', exact=True).wait_for()
             browser.close()
     finally:
         server.shutdown()
