@@ -70,7 +70,8 @@ def dashboard():
     calls = db.session.scalars(select(Call).where(Call.tenant_id == tenant_id).order_by(Call.started_at.desc(), Call.id.desc()).limit(50)).all()
     usage = db.session.scalar(select(func.coalesce(func.sum(Call.cost), 0)).where(Call.tenant_id == tenant_id, Call.started_at >= month))
     seconds = db.session.scalar(select(func.coalesce(func.sum(Call.duration), 0)).where(Call.tenant_id == tenant_id, Call.started_at >= month))
-    accounts = db.session.scalars(select(SipAccount).where(SipAccount.tenant_id == tenant_id, SipAccount.active.is_(True))).all()
+    accounts = (db.session.scalars(select(SipAccount).where(SipAccount.tenant_id == tenant_id, SipAccount.active.is_(True))).all()
+                if current_user.tenant.show_sip_details else [])
     return render_template('dashboard.html', title='Overview', calls=calls, usage=usage, seconds=seconds, accounts=accounts)
 
 
@@ -106,7 +107,8 @@ def filtered_calls():
 def export_calls():
     from .exports import cdr_workbook
     statement, start, end = filtered_calls()
-    rows = db.session.execute(statement.add_columns(func.coalesce(SipAccount.label, Did.number)).outerjoin(SipAccount,
+    service_label = func.coalesce(SipAccount.label, Did.number) if current_user.tenant.show_sip_details else Did.number
+    rows = db.session.execute(statement.add_columns(service_label).outerjoin(SipAccount,
         (SipAccount.id == Call.sip_account_id) & (SipAccount.tenant_id == current_user.tenant_id))
         .outerjoin(Did, (Did.id == Call.did_id) & (Did.tenant_id == current_user.tenant_id))
         .order_by(Call.started_at.desc(), Call.id.desc()).limit(50001)).all()
@@ -123,6 +125,8 @@ def export_calls():
 def trunks():
     revealed, error = None, None
     if request.method == 'POST':
+        if not current_user.tenant.show_sip_details:
+            abort(403)
         account = db.session.scalar(select(SipAccount).where(SipAccount.id == request.form.get('account_id', type=int), SipAccount.tenant_id == current_user.tenant_id))
         if not account:
             abort(404)
@@ -130,9 +134,11 @@ def trunks():
             error = 'Your password was incorrect. The SIP password remains hidden.'
         else:
             revealed = (account.id, Fernet(current_app.config['ENCRYPTION_KEY']).decrypt(account.password_encrypted.encode()).decode())
-    accounts = db.session.scalars(select(SipAccount).where(SipAccount.tenant_id == current_user.tenant_id).order_by(SipAccount.id)).all()
+    accounts = (db.session.scalars(select(SipAccount).where(SipAccount.tenant_id == current_user.tenant_id).order_by(SipAccount.id)).all()
+                if current_user.tenant.show_sip_details else [])
     dids = db.session.scalars(select(Did).where(Did.tenant_id == current_user.tenant_id).order_by(Did.number)).all()
-    return render_template('trunks.html', title='SIP accounts', accounts=accounts, dids=dids, revealed=revealed, error=error)
+    return render_template('trunks.html', title='SIP accounts' if current_user.tenant.show_sip_details else 'Your numbers',
+                           accounts=accounts, dids=dids, revealed=revealed, error=error)
 
 
 @portal.get('/billing')

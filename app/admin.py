@@ -225,6 +225,9 @@ def client(tenant_id):
                 user.active = request.form.get('active') == 'on'
                 user.auth_version += 1
                 audit('client.update_user', user.id, {'password_changed': bool(password), 'active': user.active})
+            elif action == 'sip_visibility':
+                tenant.show_sip_details = request.form.get('show_sip_details') == 'on'
+                audit('client.sip_visibility', tenant_id, {'enabled': tenant.show_sip_details})
             elif action == 'sip':
                 provider_id, label = form_text('provider_id'), form_text('label', 100)
                 username, host = form_text('username'), form_text('host', 254)

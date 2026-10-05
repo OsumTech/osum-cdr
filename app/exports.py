@@ -25,7 +25,7 @@ def cdr_workbook(rows, company, start, end):
     for index, (call, label) in enumerate(rows, start=6):
         serial = (call.started_at.replace(tzinfo=None) - datetime(1899, 12, 30)).total_seconds() / 86400
         body.append(f'<row r="{index}">' + cell('A', index, serial, 2, True)
-                    + cell('B', index, label) + cell('C', index, '+' + call.destination)
+                    + cell('B', index, label or '') + cell('C', index, '+' + call.destination)
                     + cell('D', index, call.rate_label) + cell('E', index, call.duration, 0, True)
                     + cell('F', index, call.cost, 3, True) + '</row>')
     last = max(5, len(rows) + 5)

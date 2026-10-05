@@ -4,7 +4,7 @@ from flask import current_app
 
 from .models import db
 
-VERSION = 8
+VERSION = 9
 
 
 def upgrade_schema():
@@ -78,6 +78,8 @@ def upgrade_schema():
                     name = connection.dialect.identifier_preparer.quote(constraint['name'])
                     connection.execute(text(f'ALTER TABLE ledger DROP CONSTRAINT {name}'))
                     connection.execute(text("ALTER TABLE ledger ADD CONSTRAINT ledger_kind CHECK (kind IN ('topup', 'usage', 'subscription', 'adjustment'))"))
+        if 'tenant' in tables and 'show_sip_details' not in {c['name'] for c in inspect(connection).get_columns('tenant')}:
+            connection.execute(text('ALTER TABLE tenant ADD COLUMN show_sip_details BOOLEAN NOT NULL DEFAULT FALSE'))
         db.metadata.create_all(connection)
         if postgres:
             connection.execute(text('''CREATE OR REPLACE FUNCTION protect_billing_history() RETURNS trigger AS $$

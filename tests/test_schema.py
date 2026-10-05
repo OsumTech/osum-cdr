@@ -8,7 +8,7 @@ from app.schema import upgrade_schema
 def test_fresh_schema_upgrade_is_idempotent(app):
     upgrade_schema()
     upgrade_schema()
-    assert db.session.get(SchemaVersion, 1).version == 8
+    assert db.session.get(SchemaVersion, 1).version == 9
     assert db.session.get(Tenant, 1).name == 'Test Company A'
 
 

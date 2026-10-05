@@ -19,7 +19,7 @@
 {{ forms.field('email', 'Email address', request.form.get('email', '') if error and request.form.get('action') == 'user' else '', 'email', true, 'add-user-') }}
 {{ forms.field('password', 'Initial password · at least 12 characters', '', 'password', true, 'add-user-') }}</div><button class="button">Add user</button></form></details></section>
 
-<section id="sip" class="admin-panel"><h2>SIP accounts</h2><p class="form-help">Map an existing provider account to this client. Use the exact SIP account identifier shown in the real CDR preview.</p>
+<section id="sip" class="admin-panel"><h2>SIP accounts</h2><form method="post">{{ forms.csrf('sip_visibility') }}<label class="checkbox"><input type="checkbox" name="show_sip_details" {% if tenant.show_sip_details %}checked{% endif %}>Allow this customer to view SIP account details</label><p class="form-help">Off by default. Applies to every login and SIP account for this company. When off, customers can still see assigned numbers, calls and billing. Administrators retain management access.</p><button class="button">Save SIP visibility</button></form><p class="form-help">Map an existing provider account to this client. Use the exact SIP account identifier shown in the real CDR preview.</p>
 {% for account in accounts %}<details class="admin-details"><summary>{{ account.label }} · {{ account.provider_id }} · {{ 'Active' if account.active else 'Inactive' }}</summary><form method="post">{{ forms.csrf('sip_update') }}<input type="hidden" name="account_id" value="{{ account.id }}"><div class="form-grid">
 {{ forms.field('label', 'Display name', account.label, prefix='sip-' ~ account.id ~ '-') }}
 {{ forms.field('host', 'Registrar / branded SIP host', account.host, prefix='sip-' ~ account.id ~ '-') }}

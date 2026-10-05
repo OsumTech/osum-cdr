@@ -247,3 +247,16 @@ and it is excluded from usage/subscription invoice totals.
 
 Run `upgrade-db` to schema 8 to enable adjustment ledger entries. After deployment, verify the
 client display and record an intended deduction once, then verify the ledger.
+
+## Customer SIP visibility (schema 9)
+
+Run `upgrade-db` when deploying this release. All existing and new clients start
+with SIP details hidden. Admin > Clients > select client > SIP accounts contains
+**Allow this customer to view SIP account details** and **Save SIP visibility**.
+The setting applies to all company logins and all its SIP accounts. Administrators
+can still add/edit multiple provider accounts. Disabling it hides account details
+and labels from customer pages/exports, rejects direct password-reveal POSTs,
+and changes the customer navigation to Your numbers. Assigned DIDs, billing and
+call records remain available. Enabling retains portal-password confirmation for
+SIP password reveal. Previously downloaded or copied credentials cannot be revoked
+by hiding the page; changing actual SIP credentials is a separate provider action.
